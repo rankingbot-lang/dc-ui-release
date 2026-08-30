@@ -1,13 +1,15 @@
 // ==UserScript==
 // @name         디시인사이드 UI 변경
 // @namespace    https://gall.dcinside.com
-// @version      1.10.0
+// @version      1.10.1
 // @description  갤러리 UI 변경, 즐겨찾기·최근 방문 통합, 단축키, 개념글 알림, 광고 숨김 등
 // @author       rankingbot
 // @license      MIT
 // @homepageURL  https://sleazyfork.org/ko/scripts/581303
-// @match        https://gall.dcinside.com/*/board/*
-// @match        https://gall.dcinside.com/board/*
+// @match        https://gall.dcinside.com/*/board/lists*
+// @match        https://gall.dcinside.com/board/lists*
+// @match        https://gall.dcinside.com/*/board/view*
+// @match        https://gall.dcinside.com/board/view*
 // @run-at       document-start
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -20,7 +22,7 @@
 (function () {
   "use strict";
 
-  const SCRIPT_VERSION = "1.10.0";
+  const SCRIPT_VERSION = "1.10.1";
   const THEME_ENABLED_KEY = "dcfmk:enabled";
   const LIST_SIZE_PREFERENCE_KEY = "dcfmk:list-size-preference";
   const SETTINGS_COLLAPSED_KEY = "dcfmk:settings-collapsed";
