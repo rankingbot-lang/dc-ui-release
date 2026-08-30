@@ -1,5 +1,3 @@
-# DC UI — 디시인사이드 UI 변경
-
 ## 설치
 
 - [Sleazy Fork에서 설치](https://sleazyfork.org/ko/scripts/581303)
