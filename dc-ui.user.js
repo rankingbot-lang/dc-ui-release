@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         디시인사이드 UI 변경
 // @namespace    https://gall.dcinside.com
-// @version      1.10.1
+// @version      1.10.22
 // @description  갤러리 UI 변경, 즐겨찾기·최근 방문 통합, 단축키, 개념글 알림, 광고 숨김 등
 // @author       rankingbot
 // @license      MIT
@@ -22,10 +22,12 @@
 (function () {
   "use strict";
 
-  const SCRIPT_VERSION = "1.10.1";
+  const SCRIPT_VERSION = "1.10.22";
   const THEME_ENABLED_KEY = "dcfmk:enabled";
   const LIST_SIZE_PREFERENCE_KEY = "dcfmk:list-size-preference";
   const SETTINGS_COLLAPSED_KEY = "dcfmk:settings-collapsed";
+  const GALLERY_COVER_HIDDEN_KEY = "dcfmk:gallery-cover-hidden";
+  const USER_IDENTIFIER_VISIBLE_KEY = "dcfmk:user-identifier-visible";
   const FAVORITE_SHORTCUT_CACHE_KEY = "dcfmk:favorite-shortcuts-cache";
   const FAVORITE_SHORTCUT_CACHE_READY_KEY = "dcfmk:favorite-shortcuts-cache-ready";
   const VALID_LIST_SIZES = new Set(["30", "50", "100"]);
@@ -163,6 +165,106 @@
   function cleanText(value) {
     return String(value || "").replace(/\s+/g, " ").trim();
   }
+
+  const AUTOMATED_REQUEST_PAUSED_KEY = "dcfmk:automated-request-paused";
+  const AUTOMATED_REQUEST_LAST_AT_KEY = "dcfmk:automated-request-last-at";
+  const AUTOMATED_REQUEST_LOCK_NAME = "dcfmk:automated-request";
+  let automatedRequestLifecycle = new AbortController();
+
+  class EmptyAutomatedResponseError extends Error {
+    constructor() {
+      super("디시 자동 요청에서 빈 응답을 받았습니다.");
+      this.name = "EmptyAutomatedResponseError";
+    }
+  }
+
+  const AutomatedRequestCoordinator = Object.freeze({
+    minGapMs: 5000,
+
+    isPaused() {
+      return GM_getValue(AUTOMATED_REQUEST_PAUSED_KEY, false) === true;
+    },
+
+    pauseOnEmpty() {
+      GM_setValue(AUTOMATED_REQUEST_PAUSED_KEY, true);
+    },
+
+    resume() {
+      GM_setValue(AUTOMATED_REQUEST_PAUSED_KEY, false);
+      this.resetLifecycle();
+    },
+
+    noteNavigation() {
+      GM_setValue(AUTOMATED_REQUEST_LAST_AT_KEY, Date.now());
+    },
+
+    stopLifecycle() {
+      automatedRequestLifecycle.abort();
+    },
+
+    resetLifecycle() {
+      if (!automatedRequestLifecycle.signal.aborted) return;
+      automatedRequestLifecycle = new AbortController();
+    },
+
+    signal() {
+      return automatedRequestLifecycle.signal;
+    },
+
+    abortError() {
+      return new DOMException("디시 자동 요청이 중지되었습니다.", "AbortError");
+    },
+
+    requireNonEmpty(value) {
+      const text = String(value || "");
+      if (text.trim()) return text;
+      this.pauseOnEmpty();
+      throw new EmptyAutomatedResponseError();
+    },
+
+    wait(delay, signal) {
+      if (!(delay > 0)) return Promise.resolve();
+      return new Promise((resolveWait, rejectWait) => {
+        if (signal.aborted) {
+          rejectWait(this.abortError());
+          return;
+        }
+        const timer = window.setTimeout(() => {
+          signal.removeEventListener("abort", abort);
+          resolveWait();
+        }, delay);
+        const abort = () => {
+          window.clearTimeout(timer);
+          rejectWait(this.abortError());
+        };
+        signal.addEventListener("abort", abort, { once: true });
+      });
+    },
+
+    async run(task, { force = false, shouldRun = null } = {}) {
+      const signal = this.signal();
+      const execute = async () => {
+        if (signal.aborted) throw this.abortError();
+        if (this.isPaused() && !force) throw new EmptyAutomatedResponseError();
+        if (typeof shouldRun === "function" && !await shouldRun()) return undefined;
+        const lastAt = Number(GM_getValue(AUTOMATED_REQUEST_LAST_AT_KEY, 0)) || 0;
+        await this.wait(Math.max(0, this.minGapMs - (Date.now() - lastAt)), signal);
+        if (signal.aborted) throw this.abortError();
+        if (this.isPaused() && !force) throw new EmptyAutomatedResponseError();
+        GM_setValue(AUTOMATED_REQUEST_LAST_AT_KEY, Date.now());
+        return task(signal);
+      };
+
+      if (navigator.locks?.request) {
+        return navigator.locks.request(
+          AUTOMATED_REQUEST_LOCK_NAME,
+          { mode: "exclusive", signal },
+          execute,
+        );
+      }
+      return execute();
+    },
+  });
 
   const AdBlocker = Object.freeze({
     adNodeSelector: [
@@ -724,7 +826,7 @@
   function bindEarlyAnchoredPopupClicks() {
     let pendingPointerActivation = null;
     const recoverableTriggerFromEvent = (event) => event.target.closest?.(
-      ".btn_mngadmin_report, .gall_issuebox .relate, .dcfmk-submanager-toggle",
+      ".btn_mngadmin_report, .gall_issuebox .relate, .dcfmk-submanager-toggle, button.smallestgag[onclick*='mini_member_join']",
     ) || null;
 
     document.addEventListener("pointerdown", (event) => {
@@ -766,6 +868,21 @@
     }, true);
 
     document.addEventListener("click", (event) => {
+      const activationTarget = recoverableTriggerFromEvent(event);
+      if (activationTarget && pendingPointerActivation?.trigger === activationTarget) {
+        pendingPointerActivation.clickObserved = true;
+      }
+      const memberJoinTrigger = event.target.closest?.("button.smallestgag[onclick*='mini_member_join']");
+      if (memberJoinTrigger) {
+        if (memberJoinTrigger.dataset.dcfmkNativeClickReplay === "true") return;
+        if (GM_getValue(THEME_ENABLED_KEY, true) === false) return;
+        if (!AnchoredPopupController.pageFunctionReady("mini_member_join")) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          AnchoredPopupController.queueNativeClick(memberJoinTrigger, "mini_member_join");
+        }
+        return;
+      }
       const managerPopupAction = event.target.closest?.([
         "#pop_manage_report_list [onclick*='get_manage_report']",
         "#pop_manage_report_list a[href*='get_manage_report']",
@@ -784,10 +901,6 @@
           });
         }
         return;
-      }
-      const activationTarget = recoverableTriggerFromEvent(event);
-      if (activationTarget && pendingPointerActivation?.trigger === activationTarget) {
-        pendingPointerActivation.clickObserved = true;
       }
       const trigger = event.target.closest?.(".btn_mngadmin_report, .gall_issuebox .relate");
       if (!trigger) return;
@@ -1171,6 +1284,132 @@
     },
   });
 
+  const CustomSettingsController = {
+    writerObserver: null,
+
+    init() {
+      this.setGalleryCoverHidden(GM_getValue(GALLERY_COVER_HIDDEN_KEY, false) === true, false);
+      this.setUserIdentifierVisible(GM_getValue(USER_IDENTIFIER_VISIBLE_KEY, false) === true, false);
+    },
+
+    mount(settingList) {
+      const list = settingList?.querySelector(".inner > ul, ul");
+      if (!list || list.querySelector(".dcfmk-custom-setting")) return;
+
+      const controls = [
+        {
+          id: "dcfmk-hide-gallery-cover",
+          label: "대문 이미지 숨김",
+          checked: GM_getValue(GALLERY_COVER_HIDDEN_KEY, false) === true,
+          change: (checked) => this.setGalleryCoverHidden(checked),
+        },
+        {
+          id: "dcfmk-show-user-identifier",
+          label: "이용자 식별 코드 표시",
+          checked: GM_getValue(USER_IDENTIFIER_VISIBLE_KEY, false) === true,
+          change: (checked) => this.setUserIdentifierVisible(checked),
+        },
+      ];
+
+      const fragment = document.createDocumentFragment();
+      for (const control of controls) {
+        const item = document.createElement("li");
+        item.className = "dcfmk-custom-setting";
+        item.innerHTML = `
+          <span class="checkbox">
+            <label for="${control.id}">${control.label}</label>
+            <input type="checkbox" id="${control.id}">
+            <em class="checkmark" aria-hidden="true"></em>
+          </span>
+        `;
+        const input = item.querySelector("input");
+        input.checked = control.checked;
+        input.addEventListener("change", () => control.change(input.checked));
+        fragment.appendChild(item);
+      }
+      list.prepend(fragment);
+    },
+
+    setGalleryCoverHidden(hidden, persist = true) {
+      const value = Boolean(hidden);
+      if (persist) GM_setValue(GALLERY_COVER_HIDDEN_KEY, value);
+      document.documentElement.classList.toggle("dcfmk-gallery-cover-hidden", value);
+      const input = document.getElementById("dcfmk-hide-gallery-cover");
+      if (input) input.checked = value;
+    },
+
+    setUserIdentifierVisible(visible, persist = true) {
+      const value = Boolean(visible);
+      if (persist) GM_setValue(USER_IDENTIFIER_VISIBLE_KEY, value);
+      document.documentElement.classList.toggle("dcfmk-user-identifier-visible", value);
+      const input = document.getElementById("dcfmk-show-user-identifier");
+      if (input) input.checked = value;
+      if (value) {
+        this.decorateWriters(document);
+        this.watchWriters();
+      } else {
+        this.writerObserver?.disconnect();
+        this.writerObserver = null;
+        document.querySelectorAll(".dcfmk-user-identifier").forEach((node) => node.remove());
+      }
+    },
+
+    decorateWriters(root) {
+      const writers = [];
+      if (root instanceof Element && root.matches(".ub-writer")) writers.push(root);
+      root.querySelectorAll?.(".ub-writer").forEach((writer) => writers.push(writer));
+      for (const writer of writers) this.decorateWriter(writer);
+    },
+
+    decorateWriter(writer) {
+      const existing = writer.querySelector(":scope .dcfmk-user-identifier");
+      const uid = cleanText(writer.dataset.uid);
+      if (!uid || writer.hasAttribute("user_name")) {
+        existing?.remove();
+        return;
+      }
+      if (existing) {
+        const label = `(${uid})`;
+        const title = `식별 코드: ${uid}`;
+        if (existing.textContent !== label) existing.textContent = label;
+        if (existing.title !== title) existing.title = title;
+        return;
+      }
+
+      const identifier = document.createElement("span");
+      identifier.className = "dcfmk-user-identifier";
+      identifier.textContent = `(${uid})`;
+      identifier.title = `식별 코드: ${uid}`;
+      const container = writer.querySelector(".addbox")
+        || writer.querySelector(".fl > span")
+        || writer;
+      container.appendChild(identifier);
+    },
+
+    watchWriters() {
+      if (this.writerObserver || typeof MutationObserver !== "function" || !document.body) return;
+      this.writerObserver = new MutationObserver((records) => {
+        for (const record of records) {
+          if (record.type === "attributes") {
+            this.decorateWriter(record.target);
+            continue;
+          }
+          const parentWriter = record.target.closest?.(".ub-writer");
+          if (parentWriter) this.decorateWriter(parentWriter);
+          record.addedNodes.forEach((node) => {
+            if (node instanceof Element) this.decorateWriters(node);
+          });
+        }
+      });
+      this.writerObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["data-uid"],
+      });
+    },
+  };
+
   const GalleryStripView = Object.freeze({
     mount(siteRoot, shell, beforeNode) {
       if (document.getElementById("dcfmk-gallery-strip")) return;
@@ -1196,9 +1435,6 @@
             <span class="dcfmk-gallery-strip-footer-label">최근방문:</span>
             <button type="button" data-role="galleryStripClear">전체 삭제</button>
             <button type="button" data-role="galleryStripDeleteMode" aria-pressed="false">개별 삭제</button>
-            <button type="button" class="dcfmk-gallery-strip-close" data-role="galleryStripClose">
-              <span class="dcfmk-gallery-strip-close-icon" aria-hidden="true"></span>닫기
-            </button>
           </div>
         </div>
       `;
@@ -1390,6 +1626,7 @@
 
       favoriteLinks.forEach((item) => appendItem(item, true));
       recentLinks.forEach((item) => appendItem(item, false));
+      list.parentElement?.classList.toggle("dcfmk-no-expanded-items", list.childElementCount === 0);
     },
 
     renderExpandedRemainder(strip) {
@@ -1413,7 +1650,6 @@
     bindExpandedControls(strip) {
       const expanded = strip.querySelector('[data-role="galleryStripExpanded"]');
       const expandButton = strip.querySelector('[data-role="galleryStripExpand"]');
-      const closeButton = strip.querySelector('[data-role="galleryStripClose"]');
       const deleteModeButton = strip.querySelector('[data-role="galleryStripDeleteMode"]');
       const clearButton = strip.querySelector('[data-role="galleryStripClear"]');
       if (!expanded || !expandButton) return;
@@ -1422,10 +1658,10 @@
         strip.classList.toggle("dcfmk-expanded", open);
         expanded.hidden = !open;
         expandButton.setAttribute("aria-expanded", String(open));
+        expandButton.setAttribute("aria-label", `최근 방문 갤러리 ${open ? "닫기" : "펼치기"}`);
         if (open) this.renderExpandedRemainder(strip);
       };
       expandButton.addEventListener("click", () => setExpanded(!strip.classList.contains("dcfmk-expanded")));
-      closeButton?.addEventListener("click", () => setExpanded(false));
       deleteModeButton?.addEventListener("click", () => {
         const active = !strip.classList.contains("dcfmk-delete-mode");
         strip.classList.toggle("dcfmk-delete-mode", active);
@@ -1572,14 +1808,16 @@
           border-color: #aab0ca;
           color: var(--dcfmk-color-nav);
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expand-icon,
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-close-icon {
+        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expand-icon {
           display: inline-block;
           width: 6px;
           height: 6px;
           border-right: 1px solid currentColor;
           border-bottom: 1px solid currentColor;
           transform: rotate(45deg) translateY(-2px);
+        }
+        html.dcfmk-enabled #dcfmk-gallery-strip.dcfmk-expanded .dcfmk-gallery-strip-expand-icon {
+          transform: rotate(225deg) translateY(-2px);
         }
         html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-viewport::-webkit-scrollbar {
           display: none;
@@ -1675,9 +1913,14 @@
         }
         html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expanded-list {
           display: flex;
-          min-height: 26px;
           flex-wrap: wrap;
           gap: 5px;
+        }
+        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expanded-list:empty {
+          display: none;
+        }
+        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expanded.dcfmk-no-expanded-items {
+          padding-top: 0;
         }
         html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expanded-item {
           display: inline-flex;
@@ -1744,6 +1987,10 @@
           color: #777;
           font-size: 11px;
         }
+        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expanded-list:empty + .dcfmk-gallery-strip-footer {
+          margin-top: 0;
+          border-top: 0;
+        }
         html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-footer button {
           padding: 0;
           border: 0;
@@ -1757,23 +2004,14 @@
           color: var(--dcfmk-color-nav);
           text-decoration: underline;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-close {
-          display: inline-flex;
-          align-items: center;
-          gap: 5px;
-          margin-left: auto;
-        }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-close-icon {
-          margin-left: 3px;
-          transform: rotate(225deg);
-          transform-origin: center;
-        }
       `;
       document.documentElement.appendChild(style);
     },
   });
 
   let conceptAlarmTimer = 0;
+  let conceptAlarmRunning = false;
+  let conceptAlarmContext = null;
   const ConceptAlarmController = Object.freeze({
     intervalMs: 15000,
     staleAfterMs: 10 * 60 * 1000,
@@ -1782,14 +2020,91 @@
     mount(context) {
       if (window.__dcConceptAlarmMounted) return;
       window.__dcConceptAlarmMounted = true;
-      window.__dcConceptAlarmCheckNow = () => this.check(context);
-      this.check(context);
+      conceptAlarmContext = context;
+      window.__dcConceptAlarmCheckNow = () => this.resume(context);
+      window.__dcConceptAlarmState = () => ({
+        running: conceptAlarmRunning,
+        scheduled: conceptAlarmTimer !== 0,
+        paused: AutomatedRequestCoordinator.isPaused(),
+        visibility: document.visibilityState,
+      });
+      GM_registerMenuCommand?.("디시 자동 요청 다시 시작", () => this.resume(context));
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState !== "visible") {
+          this.stop();
+          return;
+        }
+        AutomatedRequestCoordinator.resetLifecycle();
+        this.scheduleDue(conceptAlarmContext);
+      });
+      window.addEventListener("pagehide", () => this.stop());
+      window.addEventListener("pageshow", (event) => {
+        if (!event.persisted) return;
+        AutomatedRequestCoordinator.resetLifecycle();
+        this.scheduleDue(conceptAlarmContext);
+      });
+      this.scheduleDue(context);
     },
 
-    async check(context) {
-      const keyPrefix = `dcconcept:${context.galleryKey}`;
+    keyPrefix(context) {
+      return `dcconcept:${context.galleryKey}`;
+    },
+
+    lastCheckedAt(context) {
+      return Number(GM_getValue(`${this.keyPrefix(context)}:checkedAt`, 0)) || 0;
+    },
+
+    lastRequestedAt(context) {
+      return Number(GM_getValue(`${this.keyPrefix(context)}:requestedAt`, 0)) || 0;
+    },
+
+    lastActivityAt(context) {
+      return Math.max(this.lastCheckedAt(context), this.lastRequestedAt(context));
+    },
+
+    stop() {
+      window.clearTimeout(conceptAlarmTimer);
+      conceptAlarmTimer = 0;
+      AutomatedRequestCoordinator.stopLifecycle();
+    },
+
+    schedule(context, delay = this.intervalMs) {
+      window.clearTimeout(conceptAlarmTimer);
+      conceptAlarmTimer = 0;
+      if (!context || document.visibilityState !== "visible" || AutomatedRequestCoordinator.isPaused()) return;
+      conceptAlarmTimer = window.setTimeout(() => {
+        conceptAlarmTimer = 0;
+        this.check(context);
+      }, Math.max(0, delay));
+    },
+
+    scheduleDue(context) {
+      if (!context || document.visibilityState !== "visible" || AutomatedRequestCoordinator.isPaused()) return;
+      const elapsed = Date.now() - this.lastActivityAt(context);
+      this.schedule(context, Math.max(0, this.intervalMs - elapsed));
+    },
+
+    resume(context) {
+      AutomatedRequestCoordinator.resume();
+      this.check(context, { force: true });
+    },
+
+    async check(context, { force = false } = {}) {
+      if (!context || conceptAlarmRunning || document.visibilityState !== "visible") return;
+      if (AutomatedRequestCoordinator.isPaused() && !force) return;
+      if (!force) {
+        const elapsed = Date.now() - this.lastActivityAt(context);
+        if (elapsed < this.intervalMs) {
+          this.schedule(context, this.intervalMs - elapsed);
+          return;
+        }
+      }
+
+      conceptAlarmRunning = true;
+      const keyPrefix = this.keyPrefix(context);
       try {
-        const html = await this.requestList(context);
+        const html = await this.requestList(context, { force });
+        if (html === undefined) return;
         const posts = this.parsePosts(html, context);
         if (posts.length === 0) throw new Error("개념글 목록을 찾지 못했습니다.");
 
@@ -1808,10 +2123,16 @@
 
         for (const post of added.slice(0, 5).reverse()) this.notify(post, context);
       } catch (error) {
-        console.debug("[DC 개념글 알림] 확인 실패", error);
+        if (error?.name === "EmptyAutomatedResponseError") {
+          console.warn("[DC 자동 요청] 빈 응답으로 모든 자동 요청을 중지했습니다.");
+        } else if (error?.name !== "AbortError") {
+          console.debug("[DC 개념글 알림] 확인 실패", error);
+        }
       } finally {
-        window.clearTimeout(conceptAlarmTimer);
-        conceptAlarmTimer = window.setTimeout(() => this.check(context), this.intervalMs);
+        conceptAlarmRunning = false;
+        if (document.visibilityState === "visible" && !AutomatedRequestCoordinator.isPaused()) {
+          this.schedule(context);
+        }
       }
     },
 
@@ -1824,35 +2145,65 @@
       return url.href;
     },
 
-    requestList(context) {
-      if (typeof GM_xmlhttpRequest !== "function") {
-        return fetch(context.urls.concept, { credentials: "include", cache: "no-store" })
-          .then((response) => {
+    requestList(context, { force = false } = {}) {
+      return AutomatedRequestCoordinator.run((signal) => {
+        GM_setValue(`${this.keyPrefix(context)}:requestedAt`, Date.now());
+        if (typeof GM_xmlhttpRequest !== "function") {
+          return fetch(context.urls.concept, {
+            credentials: "include",
+            cache: "no-store",
+            signal,
+          }).then(async (response) => {
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return response.text();
+            return AutomatedRequestCoordinator.requireNonEmpty(await response.text());
           });
-      }
+        }
 
-      return new Promise((resolveRequest, rejectRequest) => {
-        GM_xmlhttpRequest({
-          method: "GET",
-          url: this.mobileListUrl(context),
-          anonymous: true,
-          timeout: 10000,
-          headers: {
-            Accept: "text/html,application/xhtml+xml",
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1",
-          },
-          onload: (response) => {
-            if (response.status < 200 || response.status >= 300) {
-              rejectRequest(new Error(`HTTP ${response.status}`));
-              return;
-            }
-            resolveRequest(response.responseText);
-          },
-          onerror: () => rejectRequest(new Error("모바일 개념글 요청 실패")),
-          ontimeout: () => rejectRequest(new Error("모바일 개념글 요청 시간 초과")),
+        return new Promise((resolveRequest, rejectRequest) => {
+          let request = null;
+          let settled = false;
+          const finish = (callback, value) => {
+            if (settled) return;
+            settled = true;
+            signal.removeEventListener("abort", abort);
+            callback(value);
+          };
+          const abort = () => {
+            request?.abort?.();
+            finish(rejectRequest, AutomatedRequestCoordinator.abortError());
+          };
+          signal.addEventListener("abort", abort, { once: true });
+          request = GM_xmlhttpRequest({
+            method: "GET",
+            url: this.mobileListUrl(context),
+            anonymous: true,
+            timeout: 10000,
+            headers: {
+              Accept: "text/html,application/xhtml+xml",
+              "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1",
+            },
+            onload: (response) => {
+              if (response.status < 200 || response.status >= 300) {
+                finish(rejectRequest, new Error(`HTTP ${response.status}`));
+                return;
+              }
+              try {
+                finish(resolveRequest, AutomatedRequestCoordinator.requireNonEmpty(response.responseText));
+              } catch (error) {
+                finish(rejectRequest, error);
+              }
+            },
+            onerror: () => finish(rejectRequest, new Error("모바일 개념글 요청 실패")),
+            ontimeout: () => finish(rejectRequest, new Error("모바일 개념글 요청 시간 초과")),
+            onabort: () => finish(rejectRequest, AutomatedRequestCoordinator.abortError()),
+          });
+          if (signal.aborted) abort();
         });
+      }, {
+        force,
+        shouldRun: force
+          ? null
+          : () => Date.now() - this.lastActivityAt(context) >= this.intervalMs,
       });
     },
 
@@ -2186,6 +2537,7 @@
       const settingList = bundle.querySelector(".setting_list");
       settingList?.classList.add("dcfmk-gallery-settings-list");
       if (settingList) settingList.style.display = "block";
+      CustomSettingsController.mount(settingList);
       this.ensureNativeSettingsAnchor();
       card.querySelector(".dcfmk-gallery-settings-body").appendChild(bundle);
       sidebar.querySelector(".dcfmk-hotkeys")?.insertAdjacentElement("afterend", card);
@@ -2737,10 +3089,34 @@
           margin-left: auto;
         }
         html.dcfmk-enabled #dcfmk-shell #search_wrap {
-          position: static;
+          position: relative;
+          inset: auto !important;
           width: 320px;
           height: 34px;
           margin: 0;
+        }
+        html.dcfmk-enabled #dcfmk-shell #search_wrap fieldset {
+          position: relative;
+          width: 100%;
+          height: 100%;
+        }
+        html.dcfmk-enabled #dcfmk-shell #search_wrap .auto_wordwrap {
+          box-sizing: border-box;
+          left: 0 !important;
+          right: auto !important;
+          top: 34px !important;
+          width: 100% !important;
+          max-width: 100%;
+          margin: 0 !important;
+          z-index: 20;
+        }
+        html.dcfmk-enabled #dcfmk-shell #search_wrap .auto_wordwrap .word_close {
+          border-top: 1px solid #ddd;
+          background: #f5f5f5 !important;
+          color: #555;
+        }
+        html.dcfmk-enabled #dcfmk-shell #search_wrap .auto_wordwrap .saveonfo .round_label .inr {
+          color: var(--dcfmk-color-nav-light) !important;
         }
         html.dcfmk-enabled #dcfmk-shell #search_wrap .top_search {
           width: 320px;
@@ -2923,8 +3299,8 @@
           display: flex;
           align-items: center;
           justify-content: space-between;
-          min-height: 31px;
-          padding: 6px 9px;
+          min-height: 26px;
+          padding: 3px 10px;
           border-bottom: 1px solid var(--dcfmk-color-border);
           background: var(--dcfmk-color-subtle);
           color: #555;
@@ -3054,6 +3430,9 @@
         }
         html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list li:last-child {
           border-bottom: 0;
+        }
+        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list li.dcfmk-custom-setting:nth-child(2) {
+          border-bottom-color: #d5d8e2;
         }
         html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list li > button,
         html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list li > span {
@@ -5059,6 +5438,9 @@
     },
   });
 
+  let subjectTargetPromise = null;
+  const SUBJECT_TARGET_CACHE_TTL_MS = 30 * 60 * 1000;
+
   const ListView = Object.freeze({
     mount() {
       const listRoot = DcAdapter.listRoot();
@@ -5070,6 +5452,7 @@
       this.decorateRows();
       this.decorateTable(listTable);
       this.decorateControls();
+      this.syncSubjectCells();
       this.injectStyle();
       return { listRoot, listTable };
     },
@@ -5174,6 +5557,45 @@
         .some((key) => cleanText(currentUrl.searchParams.get(key)));
     },
 
+    mountMiniMemberControl(meta, root = document, sourceBoxOverride = null) {
+      if (!meta) return null;
+      let join = meta.querySelector(".dcfmk-gallery-join");
+      const memberSource = meta.querySelector(".dcfmk-gallery-members.membernum")
+        || root.querySelector(".mini_set.membernum, .membernum")
+        || document.querySelector(".mini_intro_box .mini_set.membernum, .mini_intro_box .membernum");
+      const sourceBox = sourceBoxOverride
+        || root.querySelector(":scope > .box")
+        || document.querySelector(".issue_contentbox .img_contbox .membernum + .box, .minor_intro_box .img_contbox .membernum + .box, .mini_intro_box .img_contbox .membernum + .box, .person_intro_box .img_contbox .membernum + .box")
+        || (memberSource?.nextElementSibling?.matches(".box") ? memberSource.nextElementSibling : null);
+      const nativeBox = join?.querySelector(":scope > .box") || sourceBox;
+      const sourceState = nativeBox?.parentElement !== join
+        && nativeBox?.nextElementSibling?.matches(".txt.font_grey")
+        && /가입|승인/.test(cleanText(nativeBox.nextElementSibling.textContent))
+        ? nativeBox.nextElementSibling
+        : null;
+      const state = join?.querySelector(":scope > .txt.font_grey") || sourceState;
+      const looseControl = join?.querySelector(":scope > .smallestgag")
+        || root.querySelector(".box > .smallestgag");
+      if (!nativeBox && !state && !looseControl) return null;
+
+      for (const node of Array.from(nativeBox?.childNodes || [])) {
+        if (node.nodeType === Node.TEXT_NODE && cleanText(node.textContent) === "<") node.remove();
+      }
+
+      if (!join) {
+        join = document.createElement("div");
+        join.className = "dcfmk-gallery-join";
+      }
+      if (memberSource) join.appendChild(memberSource);
+      if (nativeBox) join.appendChild(nativeBox);
+      else if (looseControl) join.appendChild(looseControl);
+      if (state) join.appendChild(state);
+      const question = document.querySelector("#join_question_div");
+      if (question) join.appendChild(question);
+      meta.appendChild(join);
+      return join;
+    },
+
     mountGalleryIntro(pageHead) {
       if (!pageHead) return null;
       const existing = document.querySelector(".dcfmk-gallery-intro");
@@ -5181,6 +5603,7 @@
         const text = existing.querySelector(".dcfmk-gallery-intro-text");
         if (pageHead.parentElement !== existing) existing.insertBefore(pageHead, text || null);
         pageHead.classList.add("dcfmk-gallery-intro-title");
+        this.mountMiniMemberControl(existing.querySelector(".dcfmk-gallery-meta"));
         return existing;
       }
 
@@ -5193,7 +5616,17 @@
       const rankIconSource = source.querySelector(".rankingcon");
       const memberLabel = cleanText(source.querySelector(".mini_set.membernum .txt, .membernum .txt")?.textContent);
       const memberNumber = cleanText(source.querySelector(".mini_set.membernum .members_num, .membernum .members_num")?.textContent);
-      if (!coverSource && !description && !rankLabel && !rankNumber && !memberLabel && !memberNumber) return null;
+      const memberSource = source.querySelector(".mini_set.membernum, .membernum");
+      const memberBox = memberSource?.nextElementSibling?.matches(".box")
+        ? memberSource.nextElementSibling
+        : null;
+      const memberState = memberBox?.nextElementSibling?.matches(".txt.font_grey")
+        && /가입|승인/.test(cleanText(memberBox.nextElementSibling.textContent))
+        ? memberBox.nextElementSibling
+        : null;
+      const hasMemberControl = Boolean(memberState
+        || Array.from(memberBox?.children || []).some((node) => node.tagName !== "SCRIPT"));
+      if (!coverSource && !description && !rankLabel && !rankNumber && !memberLabel && !memberNumber && !hasMemberControl) return null;
 
       const intro = document.createElement("section");
       intro.className = "dcfmk-gallery-intro";
@@ -5245,7 +5678,7 @@
 
       const text = document.createElement("div");
       text.className = "dcfmk-gallery-intro-text";
-      if (rankLabel || rankNumber || memberLabel || memberNumber) {
+      if (rankLabel || rankNumber || memberLabel || memberNumber || hasMemberControl) {
         const meta = document.createElement("div");
         meta.className = "dcfmk-gallery-meta";
         if (rankLabel || rankNumber) {
@@ -5264,14 +5697,20 @@
           meta.appendChild(rank);
         }
         if (memberLabel || memberNumber) {
-          const member = document.createElement("span");
-          member.className = "dcfmk-gallery-members";
-          member.innerHTML = '<span class="dcfmk-gallery-members-icon" aria-hidden="true"></span>';
-          const value = document.createElement("strong");
-          value.textContent = [memberLabel || "멤버", memberNumber].filter(Boolean).join(" ");
-          member.appendChild(value);
-          meta.appendChild(member);
+          if (memberSource) {
+            memberSource.classList.add("dcfmk-gallery-members");
+            meta.appendChild(memberSource);
+          } else {
+            const member = document.createElement("span");
+            member.className = "dcfmk-gallery-members";
+            member.innerHTML = '<span class="dcfmk-gallery-members-icon" aria-hidden="true"></span>';
+            const value = document.createElement("strong");
+            value.textContent = [memberLabel || "멤버", memberNumber].filter(Boolean).join(" ");
+            member.appendChild(value);
+            meta.appendChild(member);
+          }
         }
+        this.mountMiniMemberControl(meta, source, memberBox);
         text.appendChild(meta);
       }
       if (description) {
@@ -5499,6 +5938,16 @@
       const movable = Array.from(nav.querySelectorAll(".dcfmk-board-tab[data-overflow-order]"))
         .sort((left, right) => Number(left.dataset.overflowOrder) - Number(right.dataset.overflowOrder));
       for (const link of movable) nav.insertBefore(link, more);
+      const firstHead = movable[0];
+      if (firstHead) {
+        const navBox = nav.getBoundingClientRect();
+        const firstHeadBox = firstHead.getBoundingClientRect();
+        const navBorderLeft = Number.parseFloat(getComputedStyle(nav).borderLeftWidth) || 0;
+        menu.style.setProperty(
+          "--dcfmk-board-menu-start",
+          `${Math.max(0, firstHeadBox.left - navBox.left - navBorderLeft)}px`,
+        );
+      }
       more.hidden = true;
       more.classList.remove("dcfmk-active");
 
@@ -5515,10 +5964,15 @@
         more.querySelector("button")?.setAttribute("aria-expanded", "false");
         return;
       }
+      const overflowWidth = nav.getBoundingClientRect().width;
+      nav.style.flex = `0 0 ${overflowWidth}px`;
+      nav.style.width = `${overflowWidth}px`;
       more.hidden = false;
       for (let index = movable.length - 1; index >= 0 && firstRowOverflows(); index -= 1) {
         menu.prepend(movable[index]);
       }
+      nav.style.removeProperty("flex");
+      nav.style.removeProperty("width");
       more.classList.toggle("dcfmk-active", Boolean(menu.querySelector(".dcfmk-active")));
       more.classList.toggle("dcfmk-open", wasOpen);
       more.querySelector("button")?.setAttribute("aria-expanded", String(wasOpen));
@@ -5563,7 +6017,12 @@
     },
 
     mountBoardNavigation(listTabs) {
-      if (!listTabs || listTabs.querySelector(".dcfmk-board-nav")) return;
+      if (!listTabs) return;
+      const mountedNav = listTabs.querySelector(".dcfmk-board-nav");
+      if (mountedNav) {
+        this.syncSubjectCells(mountedNav);
+        return;
+      }
 
       const currentUrl = new URL(location.href);
       const exceptionMode = currentUrl.searchParams.get("exception_mode") || "";
@@ -5629,7 +6088,126 @@
       listTabs.prepend(nav);
       originalTabs?.classList.add("dcfmk-board-nav-source");
       originalHeads?.classList.add("dcfmk-board-nav-source");
+      this.syncSubjectCells(nav);
       this.bindBoardMore(nav, more);
+    },
+
+    subjectTargets(root = document, nav = root.querySelector?.(".dcfmk-board-nav")) {
+      const targets = new Map();
+      for (const link of nav?.querySelectorAll(".dcfmk-board-tab") || []) {
+        const label = cleanText(link.textContent);
+        if (label) targets.set(label, link.href);
+      }
+      for (const source of root.querySelectorAll?.(".list_array_option .center_box a") || []) {
+        const label = cleanText(source.textContent);
+        const headValue = source.getAttribute("onclick")?.match(/listSearchHead\((\d+)\)/)?.[1];
+        if (!label || headValue === undefined) continue;
+        const target = new URL(pageContext.urls.list);
+        target.searchParams.set("search_head", headValue);
+        targets.set(label, target.href);
+      }
+      targets.set("공지", pageContext.urls.notice);
+      return targets;
+    },
+
+    subjectTargetCacheKey() {
+      return `dcfmk:subject-targets:${pageContext.galleryKey}`;
+    },
+
+    readSubjectTargetCache() {
+      const cached = GM_getValue(this.subjectTargetCacheKey(), null);
+      if (!cached || !Array.isArray(cached.entries)) {
+        return { targets: new Map(), fresh: false };
+      }
+      const entries = cached.entries.filter((entry) => (
+        Array.isArray(entry)
+        && entry.length === 2
+        && typeof entry[0] === "string"
+        && typeof entry[1] === "string"
+      ));
+      const savedAt = Number(cached.savedAt) || 0;
+      return {
+        targets: new Map(entries),
+        fresh: Date.now() - savedAt <= SUBJECT_TARGET_CACHE_TTL_MS,
+      };
+    },
+
+    cacheSubjectTargets(targets) {
+      const entries = Array.from(targets).filter(([label, href]) => label && href);
+      const hasSearchHead = entries.some(([, href]) => {
+        try {
+          return new URL(href, location.href).searchParams.has("search_head");
+        } catch (_error) {
+          return false;
+        }
+      });
+      if (!hasSearchHead) return false;
+      GM_setValue(this.subjectTargetCacheKey(), {
+        savedAt: Date.now(),
+        entries,
+      });
+      return true;
+    },
+
+    loadSubjectTargets() {
+      if (!subjectTargetPromise) {
+        subjectTargetPromise = AutomatedRequestCoordinator.run(async (signal) => {
+          const response = await fetch(pageContext.urls.list, {
+            credentials: "include",
+            cache: "no-store",
+            signal,
+          });
+          if (!response.ok) throw new Error(`말머리 목록 요청 실패: ${response.status}`);
+          const html = AutomatedRequestCoordinator.requireNonEmpty(await response.text());
+          const targets = this.subjectTargets(new DOMParser().parseFromString(html, "text/html"));
+          this.cacheSubjectTargets(targets);
+          return targets;
+        });
+      }
+      return subjectTargetPromise;
+    },
+
+    linkSubjectCells(targets) {
+      for (const cell of document.querySelectorAll("table.dcfmk-list-table tbody tr.ub-content .dcfmk-tab-cell")) {
+        if (cell.querySelector(":scope > .dcfmk-subject-filter-link")) continue;
+        const label = cleanText(cell.textContent);
+        const targetHref = targets.get(label);
+        if (!targetHref) continue;
+
+        const link = document.createElement("a");
+        link.className = "dcfmk-subject-filter-link";
+        link.href = targetHref;
+        link.setAttribute("aria-label", `${label} 말머리 글만 보기`);
+        while (cell.firstChild) link.appendChild(cell.firstChild);
+        cell.appendChild(link);
+      }
+    },
+
+    syncSubjectCells(nav = null) {
+      const localTargets = this.subjectTargets(document, nav || undefined);
+      const cached = this.readSubjectTargetCache();
+      const knownTargets = new Map([...cached.targets, ...localTargets]);
+      this.linkSubjectCells(knownTargets);
+      const localTargetsAreComplete = this.cacheSubjectTargets(localTargets);
+      const hasFreshTargets = cached.fresh || localTargetsAreComplete;
+      const hasUnlinkedSupportedCell = Array.from(document.querySelectorAll(
+        "table.dcfmk-list-table tbody tr.ub-content .dcfmk-tab-cell:not(:has(> .dcfmk-subject-filter-link))",
+      )).some((cell) => !["", "설문", "AD"].includes(cleanText(cell.textContent)));
+      const needsRemoteTargets = !hasFreshTargets && hasUnlinkedSupportedCell;
+      const needsFreshViewTargets = pageContext.pageType === "view" && !hasFreshTargets;
+      if (!needsRemoteTargets && !needsFreshViewTargets) return;
+
+      this.loadSubjectTargets().then((remoteTargets) => {
+        const mergedTargets = new Map([...remoteTargets, ...localTargets]);
+        this.linkSubjectCells(mergedTargets);
+      }).catch((error) => {
+        if (error?.name === "EmptyAutomatedResponseError") {
+          console.warn("[DC 자동 요청] 빈 응답으로 모든 자동 요청을 중지했습니다.");
+        } else if (error?.name !== "AbortError") {
+          console.debug("[DC 말머리 매핑] 목록 확인 실패", error);
+        }
+        // 원본 목록 요청이 실패하면 이미 확인된 로컬 말머리 링크만 유지한다.
+      });
     },
 
     syncGalleryHeader() {
@@ -5772,6 +6350,8 @@
       if (!control || !select || !currentLink || optionLinks.length === 0) return;
 
       control.classList.add("dcfmk-list-size-control");
+      control.closest(".right_box")?.querySelector(".switch_btnbox .btn_write")
+        ?.classList.add("dcfmk-top-write-button");
       const currentSize = cleanText(currentLink.textContent).match(/(?:30|50|100)/)?.[0] || select.value || "30";
       select.value = currentSize;
       currentLink.setAttribute("aria-haspopup", "listbox");
@@ -5993,11 +6573,14 @@
         html.dcfmk-enabled .bottom_paging_box {
           display: flex;
           flex: 0 1 auto;
+          box-sizing: border-box;
+          height: 26px !important;
+          min-height: 0 !important;
           align-items: center;
           justify-content: center;
           gap: 2px;
           width: auto !important;
-          padding-top: 0 !important;
+          padding: 0 !important;
         }
         html.dcfmk-enabled .bottom_paging_box > a,
         html.dcfmk-enabled .bottom_paging_box > em {
@@ -6216,6 +6799,9 @@
           margin: -4px auto 9px;
           background: #fff;
         }
+        html.dcfmk-enabled.dcfmk-gallery-cover-hidden .dcfmk-gallery-cover {
+          display: none !important;
+        }
         html.dcfmk-enabled .dcfmk-gallery-cover > img {
           display: block;
           width: auto;
@@ -6287,7 +6873,33 @@
           font-weight: 700;
         }
         html.dcfmk-enabled .dcfmk-gallery-members {
+          float: none !important;
+          margin: 0 !important;
           color: #666;
+        }
+        html.dcfmk-enabled .dcfmk-gallery-join {
+          position: relative;
+          display: inline-flex;
+          flex: 0 0 auto;
+          align-items: center;
+          gap: 6px;
+        }
+        html.dcfmk-enabled .dcfmk-gallery-join > .box {
+          display: inline-flex;
+          float: none !important;
+          align-items: center;
+          margin: 0 !important;
+        }
+        html.dcfmk-enabled .dcfmk-gallery-join .smallestgag {
+          float: none !important;
+          margin: 0 !important;
+        }
+        html.dcfmk-enabled .dcfmk-gallery-join > .txt.font_grey {
+          display: inline-flex;
+          align-items: center;
+          margin: 0;
+          font-size: 12px;
+          white-space: nowrap;
         }
         html.dcfmk-enabled .dcfmk-gallery-members-icon {
           position: relative;
@@ -6485,15 +7097,16 @@
           display: flex !important;
           box-sizing: border-box;
           width: 100%;
-          min-height: 33px;
+          min-height: 37px;
           height: auto !important;
           align-items: flex-start;
           margin: 0 0 8px;
           padding: 0;
-          border: 1px solid #ddd;
-          border-radius: 2px;
-          background: #fff;
-          box-shadow: 0 1px 1px rgb(0 0 0 / 8%);
+          column-gap: 8px;
+          border: 0;
+          border-radius: 0;
+          background: transparent;
+          box-shadow: none;
           overflow: visible;
         }
         html.dcfmk-enabled .list_array_option::before {
@@ -6504,28 +7117,34 @@
           display: none !important;
         }
         html.dcfmk-enabled .dcfmk-board-nav {
+          position: relative;
+          z-index: 5;
           display: flex;
-          flex: 1 1 auto;
+          flex: 0 1 auto;
           box-sizing: border-box;
-          width: 100%;
-          max-width: 100%;
+          width: auto;
+          max-width: calc(100% - 159px);
           min-width: 0;
           align-items: center;
           flex-wrap: wrap;
           gap: 0;
-          min-height: 31px;
-          height: auto;
+          min-height: 37px;
+          height: 37px;
+          border: 1px solid #ddd;
+          border-radius: 2px;
+          background: #fff;
+          box-shadow: 0 1px 1px rgb(0 0 0 / 8%);
           overflow: visible;
         }
         html.dcfmk-enabled .dcfmk-board-tab {
           display: inline-flex;
           flex: 0 0 auto;
           min-width: 0;
-          height: 31px;
+          height: 35px;
           align-items: center;
           justify-content: center;
           margin: 0;
-          padding: 0 9px;
+          padding: 0 12px;
           border: 0;
           border-right: 1px solid #e5e5e5;
           border-radius: 0;
@@ -6533,7 +7152,7 @@
           color: #777;
           font-size: 11px;
           font-weight: 700;
-          line-height: 31px;
+          line-height: 35px;
           text-decoration: none;
         }
         html.dcfmk-enabled .dcfmk-board-tab:hover {
@@ -6556,8 +7175,8 @@
           color: #3262c5;
         }
         html.dcfmk-enabled .dcfmk-board-tab-home {
-          min-width: 34px;
-          width: 34px;
+          min-width: 38px;
+          width: 38px;
           padding: 0;
         }
         html.dcfmk-enabled .dcfmk-board-tab-home svg {
@@ -6568,18 +7187,18 @@
         html.dcfmk-enabled .dcfmk-board-more {
           position: relative;
           display: flex;
-          flex: 0 0 29px;
-          width: 29px;
-          height: 31px;
-          margin-left: auto;
+          flex: 0 0 33px;
+          width: 33px;
+          height: 35px;
+          margin-left: 0;
         }
         html.dcfmk-enabled .dcfmk-board-more[hidden] {
           display: none !important;
         }
         html.dcfmk-enabled .dcfmk-board-more-button {
           display: inline-flex;
-          width: 29px;
-          height: 31px;
+          width: 33px;
+          height: 35px;
           align-items: center;
           justify-content: center;
           padding: 0;
@@ -6605,15 +7224,19 @@
           transform: rotate(180deg);
         }
         html.dcfmk-enabled .dcfmk-board-more-menu {
+          position: absolute;
+          z-index: 6;
+          top: calc(100% + 1px);
+          left: 0;
           display: none;
           box-sizing: border-box;
-          flex: 0 0 100%;
           width: 100%;
           min-height: 29px;
-          padding: 4px 34px;
+          padding: 4px 38px 4px var(--dcfmk-board-menu-start, 0px);
           flex-wrap: wrap;
           align-items: center;
-          border-top: 1px solid #d8dbe5;
+          border: 1px solid #d8dbe5;
+          border-radius: 0 0 2px 2px;
           background: #fafafa;
           box-shadow: inset 0 1px 0 #fff;
         }
@@ -6624,44 +7247,56 @@
           display: none !important;
         }
         html.dcfmk-enabled .dcfmk-board-more-menu .dcfmk-board-tab {
-          height: 25px;
-          padding: 0 10px;
+          height: 29px;
+          padding: 0 12px;
           border-right: 1px solid #e2e2e2;
-          line-height: 25px;
+          line-height: 29px;
           white-space: nowrap;
         }
         html.dcfmk-enabled .list_array_option .right_box {
           position: relative;
           z-index: 4;
-          display: block !important;
+          display: flex !important;
           box-sizing: border-box !important;
-          flex: 0 0 58px !important;
-          min-width: 58px !important;
-          max-width: 58px !important;
-          width: 58px !important;
-          height: 31px;
+          flex: 0 0 151px !important;
+          min-width: 151px !important;
+          max-width: 151px !important;
+          width: 151px !important;
+          height: 37px;
           align-self: flex-start;
-          margin: 0 !important;
+          margin: 0 0 0 auto !important;
           padding: 0 !important;
-          border-left: 1px solid #e5e5e5;
+          border: 1px solid #ddd;
+          border-radius: 2px;
           background: #fafafa;
+          box-shadow: 0 1px 1px rgb(0 0 0 / 8%);
         }
         html.dcfmk-enabled .list_array_option .right_box .output_array {
-          display: block !important;
+          display: flex !important;
+          box-sizing: border-box;
           width: 100%;
-          height: 31px;
+          height: 35px;
+          align-items: center;
+          gap: 5px;
           margin: 0;
-          padding: 0;
+          padding: 0 4px 0 5px;
         }
         html.dcfmk-enabled .list_array_option .right_box .switch_btnbox {
-          display: none !important;
+          display: flex !important;
+          flex: 0 0 auto;
+          width: auto;
+          height: 35px;
+          align-items: center;
+          margin: 0;
+          padding: 0;
+          font-size: 0;
         }
         html.dcfmk-enabled .list_array_option .dcfmk-list-size-control {
           position: relative;
           float: none !important;
           box-sizing: border-box;
-          width: 57px !important;
-          height: 31px;
+          width: 61px !important;
+          height: 35px;
           margin: 0 !important;
         }
         html.dcfmk-enabled .list_array_option .dcfmk-list-size-control > select {
@@ -6670,8 +7305,8 @@
         html.dcfmk-enabled .list_array_option .dcfmk-list-size-control > .select_area {
           display: block !important;
           box-sizing: border-box;
-          width: 57px !important;
-          height: 31px !important;
+          width: 61px !important;
+          height: 35px !important;
           margin: 0 !important;
           border: 0;
           background: transparent;
@@ -6680,12 +7315,12 @@
           position: relative;
           display: block;
           box-sizing: border-box;
-          width: 57px;
-          height: 31px;
+          width: 61px;
+          height: 35px;
           overflow: hidden;
-          padding: 0 18px 0 7px;
+          padding: 0 20px 0 9px;
           color: #666;
-          font: 700 10px/31px var(--dcfmk-font);
+          font: 700 10px/35px var(--dcfmk-font);
           text-align: left;
           text-decoration: none;
           white-space: nowrap;
@@ -6696,8 +7331,8 @@
         }
         html.dcfmk-enabled .list_array_option .dcfmk-list-size-control .icon_option_more {
           position: absolute !important;
-          top: 12px !important;
-          right: 7px !important;
+          top: 14px !important;
+          right: 9px !important;
           width: 0 !important;
           height: 0 !important;
           margin: 0 !important;
@@ -6708,11 +7343,11 @@
         html.dcfmk-enabled .list_array_option .dcfmk-list-size-control > #listSizeLayer {
           position: absolute !important;
           z-index: 100;
-          top: 31px !important;
+          top: 35px !important;
           right: -1px !important;
           left: auto !important;
           box-sizing: border-box;
-          width: 59px !important;
+          width: 63px !important;
           margin: 0 !important;
           padding: 2px 0 !important;
           border: 1px solid #bbb;
@@ -6749,20 +7384,21 @@
           table-layout: auto;
         }
         html.dcfmk-enabled table.dcfmk-list-table thead th {
-          height: 29px;
-          padding: 5px 6px 3px;
+          box-sizing: border-box;
+          height: 33px;
+          padding: 7px 6px 5px;
           border-top: 1px solid #ccc;
           border-bottom: 1px solid #bbb;
           background: linear-gradient(to bottom, #fff 0, #f9f9f9 100%);
           box-shadow: inset 0 -1px 0 #fff;
           color: #555;
-          font-size: 12px;
+          font-size: 13px;
           white-space: nowrap;
         }
         html.dcfmk-enabled table.dcfmk-list-table tbody td {
           box-sizing: border-box;
-          height: 31px;
-          padding: 6px 4px 4px;
+          height: 36px;
+          padding: 6px 6px 4px;
           color: #555;
           font-size: 11px;
           line-height: 20px;
@@ -6774,11 +7410,24 @@
           box-sizing: border-box;
           width: 68px;
           max-width: 68px;
-          padding-left: 4px;
-          padding-right: 4px;
+          padding-left: 8px;
+          padding-right: 8px;
           color: #369;
           text-align: center;
           white-space: nowrap;
+        }
+        html.dcfmk-enabled table.dcfmk-list-table .dcfmk-subject-filter-link {
+          display: block;
+          overflow: hidden;
+          width: 100%;
+          color: inherit;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        html.dcfmk-enabled table.dcfmk-list-table .dcfmk-subject-filter-link:hover,
+        html.dcfmk-enabled table.dcfmk-list-table .dcfmk-subject-filter-link:focus-visible {
+          color: var(--dcfmk-color-link);
+          text-decoration: underline;
         }
         html.dcfmk-enabled table.dcfmk-list-table .gall_tit {
           width: auto;
@@ -6970,7 +7619,8 @@
           align-items: center;
           gap: 5px;
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-button {
+        html.dcfmk-enabled .dcfmk-fm-bottom-button,
+        html.dcfmk-enabled .list_array_option .dcfmk-top-write-button {
           display: inline-flex;
           box-sizing: border-box;
           height: 28px;
@@ -6983,29 +7633,48 @@
           background: linear-gradient(to bottom, #fff 0, #f3f3f3 100%);
           color: #333;
           font: 11px/26px var(--dcfmk-font);
+          letter-spacing: normal;
+          white-space: normal;
           cursor: pointer;
           text-decoration: none;
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-actions > .dcfmk-fm-bottom-button {
+        html.dcfmk-enabled .dcfmk-fm-bottom-actions > .dcfmk-fm-bottom-button,
+        html.dcfmk-enabled .list_array_option .dcfmk-top-write-button {
           width: auto !important;
           min-width: 64px !important;
+        }
+        html.dcfmk-enabled .list_array_option .dcfmk-top-write-button {
+          min-width: 70px !important;
+          height: 32px;
+          padding-right: 14px;
+          padding-left: 14px;
+          line-height: 30px;
         }
         html.dcfmk-enabled .dcfmk-fm-concept-button.dcfmk-active {
           color: #3262c5;
           font-weight: 700;
         }
-        html.dcfmk-enabled .dcfmk-fm-write-button::before {
-          margin-right: 4px;
+        html.dcfmk-enabled .dcfmk-fm-write-button::before,
+        html.dcfmk-enabled .list_array_option .dcfmk-top-write-button::before {
+          width: auto;
+          height: auto;
+          margin: 0 4px 0 0;
+          background: none;
+          font: inherit;
+          letter-spacing: normal;
           color: #666;
           content: "✎";
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-button:hover {
+        html.dcfmk-enabled .dcfmk-fm-bottom-button:hover,
+        html.dcfmk-enabled .list_array_option .dcfmk-top-write-button:hover {
           border-color: #aaa;
           box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
           text-decoration: none;
         }
         html.dcfmk-enabled .bottom_paging_wrap {
-          min-height: 46px;
+          box-sizing: border-box;
+          height: 36px !important;
+          min-height: 36px;
           margin-top: 0;
           padding-top: 10px;
           border-top: 0;
@@ -7296,7 +7965,7 @@
           text-decoration: none;
         }
         html.dcfmk-enabled .dcfmk-article-body {
-          border-bottom: 1px solid var(--dcfmk-color-border);
+          border-bottom: 0;
           background: #fff;
         }
         html.dcfmk-enabled .dcfmk-article-body > .inner {
@@ -7325,8 +7994,8 @@
         html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box {
           margin-top: 0 !important;
           margin-bottom: 0 !important;
-          padding-top: 8px !important;
-          padding-bottom: 8px !important;
+          padding-top: 0 !important;
+          padding-bottom: 0 !important;
         }
         html.dcfmk-enabled .dcfmk-article-body .recom_bottom_box {
           margin-top: 0 !important;
@@ -7393,8 +8062,8 @@
         }
         html.dcfmk-enabled .dcfmk-comments .cmt_info > .addbox > .cmt_txtbox {
           float: none !important;
-          flex: 0 1 auto;
-          width: fit-content !important;
+          flex: 1 1 auto;
+          width: auto !important;
           max-width: calc(100% - 152px);
           min-width: 0;
         }
@@ -7437,8 +8106,8 @@
         html.dcfmk-enabled .dcfmk-comments .reply_info > .addbox > .cmt_txtbox,
         html.dcfmk-enabled .dcfmk-comments .reply_info > .addbox > .usertxt {
           float: none !important;
-          flex: 0 1 auto;
-          width: fit-content !important;
+          flex: 1 1 auto;
+          width: auto !important;
           max-width: calc(100% - 133px);
           min-width: 0;
         }
@@ -7451,9 +8120,10 @@
         }
         html.dcfmk-enabled .dcfmk-comments .cmt_txtbox:has(> .comment_dccon) {
           display: inline-flex !important;
+          flex: 1 1 auto;
           flex-flow: row nowrap;
           align-items: flex-start;
-          width: fit-content !important;
+          width: auto !important;
           max-width: 100%;
         }
         html.dcfmk-enabled .dcfmk-comments .cmt_txtbox:has(> .mention) {
@@ -7490,11 +8160,24 @@
           color: #444;
           font-weight: 700;
         }
+        html.dcfmk-enabled .dcfmk-user-identifier {
+          margin-left: 3px;
+          color: #888;
+          font-size: 10px;
+          font-weight: 400;
+          pointer-events: none;
+        }
+        html.dcfmk-enabled table.dcfmk-list-table .dcfmk-user-identifier {
+          font-size: 9px;
+        }
         html.dcfmk-enabled .dcfmk-comments .cmt_txtbox {
           padding-top: 0;
           color: #222;
           font-size: 13px;
           line-height: 1.6;
+        }
+        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box {
+          padding-top: 19px !important;
         }
         html.dcfmk-enabled .dcfmk-comments .cmt_write_box {
           box-sizing: border-box;
@@ -7525,7 +8208,25 @@
         html.dcfmk-enabled .dcfmk-comments .btn_cmt_close,
         html.dcfmk-enabled .dcfmk-comments .contgo {
           color: var(--dcfmk-color-muted);
-          font-size: 11px;
+          font-size: 13px;
+        }
+        html.dcfmk-enabled .dcfmk-comments .comment_box > .bottom_paging_box {
+          height: auto !important;
+          min-height: 38px !important;
+          padding: 6px 0 !important;
+        }
+        html.dcfmk-enabled .dcfmk-comments .comment_box > .bottom_paging_box > .cmt_paging {
+          display: flex;
+          flex: 0 1 auto;
+          height: 26px;
+          align-items: center;
+          justify-content: center;
+          padding: 0 !important;
+        }
+        html.dcfmk-enabled .dcfmk-comments .comment_box > .bottom_paging_box > .cmt_inner {
+          top: 50% !important;
+          margin-top: 0 !important;
+          transform: translateY(-50%);
         }
         html.dcfmk-enabled .dcfmk-article .dcfmk-article-header {
           margin: 0 0 20px;
@@ -7540,8 +8241,8 @@
           border-bottom: 1px solid #ccc;
           background: #fcfcfc;
           color: #222;
-          font-size: 18px;
-          line-height: 22px;
+          font-size: 17px;
+          line-height: 18px;
         }
         html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .dcfmk-article-date {
           position: absolute;
@@ -7579,7 +8280,7 @@
           margin-bottom: 0 !important;
           padding-bottom: 0 !important;
           font-size: 13px;
-          line-height: 1.65;
+          line-height: 1.6;
         }
         /* 1.9.37의 분할 추천 UI는 원본 디시 컨트롤을 사용하도록 비활성화한다. */
         @media not all {
@@ -7761,13 +8462,13 @@
         }
         }
         html.dcfmk-enabled .dcfmk-article-body .positionr {
-          margin-top: 0 !important;
+          margin-top: 30px !important;
           margin-bottom: 0 !important;
           padding-top: 0 !important;
           padding-bottom: 0 !important;
         }
         html.dcfmk-enabled .dcfmk-comments {
-          margin-top: 4px !important;
+          margin-top: 10px !important;
         }
         html.dcfmk-enabled .dcfmk-article-body > div:not([class])[style*="width:100%"][style*="text-align:center"] {
           display: none !important;
@@ -7954,12 +8655,13 @@
 
       const themeEnabled = ThemeController.isEnabled();
       if (themeEnabled) {
+        CustomSettingsController.init();
+        AutomatedRequestCoordinator.noteNavigation();
         ShellView.mount(pageContext);
         ListView.mount();
         ArticleView.mount(pageContext);
+        ConceptAlarmController.mount(pageContext);
       }
-
-      ConceptAlarmController.mount(pageContext);
     } finally {
       releaseEarlyShield();
     }
