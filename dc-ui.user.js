@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         디시인사이드 UI 변경
 // @namespace    https://gall.dcinside.com
-// @version      1.10.22
+// @version      1.10.27
 // @description  갤러리 UI 변경, 즐겨찾기·최근 방문 통합, 단축키, 개념글 알림, 광고 숨김 등
 // @author       rankingbot
 // @license      MIT
@@ -10,8 +10,10 @@
 // @match        https://gall.dcinside.com/board/lists*
 // @match        https://gall.dcinside.com/*/board/view*
 // @match        https://gall.dcinside.com/board/view*
+// @resource     dcfmk-fontawesome https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.6.0/fonts/fontawesome-webfont.woff2#sha256=c1732796c9dfafddff16db9660e67a879d723f376b0160cccad730c6c414eed3
 // @run-at       document-start
 // @grant        GM_getValue
+// @grant        GM_getResourceURL
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
 // @grant        GM_xmlhttpRequest
@@ -22,7 +24,7 @@
 (function () {
   "use strict";
 
-  const SCRIPT_VERSION = "1.10.22";
+  const SCRIPT_VERSION = "1.10.27";
   const THEME_ENABLED_KEY = "dcfmk:enabled";
   const LIST_SIZE_PREFERENCE_KEY = "dcfmk:list-size-preference";
   const SETTINGS_COLLAPSED_KEY = "dcfmk:settings-collapsed";
@@ -2012,6 +2014,9 @@
   let conceptAlarmTimer = 0;
   let conceptAlarmRunning = false;
   let conceptAlarmContext = null;
+  let conceptAlarmParseCount = 0;
+  let conceptAlarmUnchangedSkipCount = 0;
+  let conceptAlarmRetainedParseNodes = 0;
   const ConceptAlarmController = Object.freeze({
     intervalMs: 15000,
     staleAfterMs: 10 * 60 * 1000,
@@ -2027,6 +2032,9 @@
         scheduled: conceptAlarmTimer !== 0,
         paused: AutomatedRequestCoordinator.isPaused(),
         visibility: document.visibilityState,
+        parseCount: conceptAlarmParseCount,
+        unchangedSkipCount: conceptAlarmUnchangedSkipCount,
+        retainedParseNodes: conceptAlarmRetainedParseNodes,
       });
       GM_registerMenuCommand?.("디시 자동 요청 다시 시작", () => this.resume(context));
       document.addEventListener("visibilitychange", () => {
@@ -2086,7 +2094,7 @@
 
     resume(context) {
       AutomatedRequestCoordinator.resume();
-      this.check(context, { force: true });
+      return this.check(context, { force: true });
     },
 
     async check(context, { force = false } = {}) {
@@ -2105,12 +2113,25 @@
       try {
         const html = await this.requestList(context, { force });
         if (html === undefined) return;
-        const posts = this.parsePosts(html, context);
+        const now = Date.now();
+        const scan = this.scanPostIds(html);
+        if (scan.ids.length === 0) throw new Error("개념글 목록을 찾지 못했습니다.");
+
+        const previousListIds = GM_getValue(`${keyPrefix}:listIds`, []);
+        const listUnchanged = Array.isArray(previousListIds)
+          && previousListIds.length === scan.ids.length
+          && previousListIds.every((id, index) => String(id) === scan.ids[index]);
+        const lastCheckedAt = Number(GM_getValue(`${keyPrefix}:checkedAt`, 0)) || 0;
+        if (listUnchanged) {
+          GM_setValue(`${keyPrefix}:checkedAt`, now);
+          conceptAlarmUnchangedSkipCount += 1;
+          return;
+        }
+
+        const posts = this.parsePosts(scan, context);
         if (posts.length === 0) throw new Error("개념글 목록을 찾지 못했습니다.");
 
-        const now = Date.now();
         const previousIds = GM_getValue(`${keyPrefix}:seen`, []);
-        const lastCheckedAt = Number(GM_getValue(`${keyPrefix}:checkedAt`, 0)) || 0;
         const canCompare = Array.isArray(previousIds)
           && previousIds.length > 0
           && now - lastCheckedAt <= this.staleAfterMs;
@@ -2118,6 +2139,7 @@
         const added = canCompare ? posts.filter((post) => !seen.has(post.id)) : [];
         const mergedIds = [...new Set([...posts.map((post) => post.id), ...seen])].slice(0, this.maxSeen);
 
+        GM_setValue(`${keyPrefix}:listIds`, scan.ids);
         GM_setValue(`${keyPrefix}:seen`, mergedIds);
         GM_setValue(`${keyPrefix}:checkedAt`, now);
 
@@ -2207,8 +2229,75 @@
       });
     },
 
-    parsePosts(html, context) {
-      const doc = new DOMParser().parseFromString(html, "text/html");
+    attributeValue(markup, name) {
+      const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const match = markup.match(new RegExp(`\\s${escapedName}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i"));
+      return match ? (match[1] ?? match[2] ?? match[3] ?? "") : "";
+    },
+
+    hasClass(markup, className) {
+      return this.attributeValue(markup, "class").split(/\s+/).includes(className);
+    },
+
+    fragmentByClass(html, tagNames, className) {
+      const tags = tagNames.join("|");
+      const openerPattern = new RegExp(`<(${tags})\\b[^>]*>`, "gi");
+      for (const match of html.matchAll(openerPattern)) {
+        if (!this.hasClass(match[0], className)) continue;
+        const tagName = match[1].toLowerCase();
+        const tagPattern = new RegExp(`<\\/?${tagName}\\b[^>]*>`, "gi");
+        tagPattern.lastIndex = match.index + match[0].length;
+        let depth = 1;
+        for (const tagMatch of html.matchAll(tagPattern)) {
+          depth += /^<\//.test(tagMatch[0]) ? -1 : 1;
+          if (depth !== 0) continue;
+          return html.slice(match.index, tagMatch.index + tagMatch[0].length);
+        }
+        return "";
+      }
+      return "";
+    },
+
+    scanPostIds(html) {
+      const mobileFragment = this.fragmentByClass(html, ["ul", "div"], "gall-detail-lst");
+      if (mobileFragment) {
+        const ids = [];
+        const seen = new Set();
+        for (const match of mobileFragment.matchAll(/<a\b[^>]*>/gi)) {
+          const opener = match[0];
+          if (!this.hasClass(opener, "lt")) continue;
+          const href = this.attributeValue(opener, "href").replace(/&amp;/gi, "&");
+          const id = href.match(/\/(\d+)\/?(?:[?#]|$)/)?.[1] || "";
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          ids.push(id);
+        }
+        return { fragment: mobileFragment, ids };
+      }
+
+      const desktopFragment = this.fragmentByClass(html, ["table"], "gall_list");
+      if (!desktopFragment) return { fragment: "", ids: [] };
+      const ids = [];
+      const seen = new Set();
+      for (const match of desktopFragment.matchAll(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi)) {
+        const row = match[0];
+        const opener = row.match(/^<tr\b[^>]*>/i)?.[0] || "";
+        if (!this.hasClass(opener, "ub-content")) continue;
+        if (this.attributeValue(opener, "data-type") === "icon_notice") continue;
+        const id = this.attributeValue(opener, "data-no");
+        if (!/^\d+$/.test(id) || seen.has(id)) continue;
+        if (!/class\s*=\s*(?:"[^"]*\bgall_tit\b[^"]*"|'[^']*\bgall_tit\b[^']*')[\s\S]*?<a\b[^>]*href\s*=\s*(?:"[^"]*\/board\/view[^\"]*"|'[^']*\/board\/view[^']*')/i.test(row)) continue;
+        seen.add(id);
+        ids.push(id);
+      }
+      return { fragment: desktopFragment, ids };
+    },
+
+    parsePosts(scan, context) {
+      const template = document.createElement("template");
+      template.innerHTML = scan.fragment;
+      const root = template.content;
+      conceptAlarmParseCount += 1;
       const posts = [];
       const seen = new Set();
 
@@ -2218,24 +2307,30 @@
         posts.push({ id, title, url });
       };
 
-      for (const link of doc.querySelectorAll(".gall-detail-lst .gall-detail-lnktb > a.lt")) {
-        const mobileUrl = new URL(link.getAttribute("href"), "https://m.dcinside.com/");
-        const id = mobileUrl.pathname.match(/\/(\d+)\/?$/)?.[1] || "";
-        const title = cleanText(link.querySelector(".subjectin")?.textContent || link.textContent);
-        addPost(id, title, this.desktopPostUrl(context, id));
-      }
+      try {
+        for (const link of root.querySelectorAll(".gall-detail-lst .gall-detail-lnktb > a.lt")) {
+          const mobileUrl = new URL(link.getAttribute("href"), "https://m.dcinside.com/");
+          const id = mobileUrl.pathname.match(/\/(\d+)\/?$/)?.[1] || "";
+          const title = cleanText(link.querySelector(".subjectin")?.textContent || link.textContent);
+          addPost(id, title, this.desktopPostUrl(context, id));
+        }
 
-      for (const row of doc.querySelectorAll("table.gall_list tr.ub-content[data-no]")) {
-        const id = cleanText(row.getAttribute("data-no"));
-        if (row.dataset.type === "icon_notice") continue;
-        const link = row.querySelector('.gall_tit a[href*="/board/view"]');
-        if (!link) continue;
-        const titleNode = link.cloneNode(true);
-        titleNode.querySelectorAll(".blind, .icon_img, .sp_img, .reply_numbox, .reply_num").forEach((node) => node.remove());
-        const title = cleanText(titleNode.textContent);
-        addPost(id, title, new URL(link.getAttribute("href"), context.urls.concept).href);
+        for (const row of root.querySelectorAll("table.gall_list tr.ub-content[data-no]")) {
+          const id = cleanText(row.getAttribute("data-no"));
+          if (row.dataset.type === "icon_notice") continue;
+          const link = row.querySelector('.gall_tit a[href*="/board/view"]');
+          if (!link) continue;
+          const titleNode = link.cloneNode(true);
+          titleNode.querySelectorAll(".blind, .icon_img, .sp_img, .reply_numbox, .reply_num").forEach((node) => node.remove());
+          const title = cleanText(titleNode.textContent);
+          titleNode.replaceChildren();
+          addPost(id, title, new URL(link.getAttribute("href"), context.urls.concept).href);
+        }
+        return posts;
+      } finally {
+        root.replaceChildren();
+        conceptAlarmRetainedParseNodes = root.childNodes.length;
       }
-      return posts;
     },
 
     desktopPostUrl(context, postId) {
@@ -7719,10 +7814,68 @@
       commentRoot?.classList.add("dcfmk-comments");
       this.decorateHeader(articleHeader);
       this.bindRecommendationReadinessGuard();
+      this.mountQuickNavigation({ articleRoot, articleHeader, articleBody, commentRoot });
       this.injectStyle();
       this.bindResponsiveMovieFrames(articleBody);
 
       return { articleRoot, articleHeader, articleBody, commentRoot };
+    },
+
+    mountQuickNavigation({ articleRoot, articleHeader, articleBody, commentRoot }) {
+      if (document.getElementById("dcfmk-article-quick-nav")) return;
+
+      const ensureTargetId = (node, fallbackId) => {
+        if (!node) return "";
+        if (!node.id) node.id = fallbackId;
+        return node.id;
+      };
+      const targets = [
+        {
+          role: "top",
+          label: "위로",
+          icon: "\uf062",
+          target: document.getElementById("top") || articleHeader || articleRoot,
+          fallbackId: "dcfmk-article-top",
+        },
+        {
+          role: "bottom",
+          label: "아래로",
+          icon: "\uf063",
+          target: document.getElementById("bottom_listwrap")
+            || document.querySelector(".view_bottom_btnbox")
+            || articleBody,
+          fallbackId: "dcfmk-article-bottom",
+        },
+        {
+          role: "comments",
+          label: "댓글로 가기",
+          icon: "\uf075",
+          target: commentRoot,
+          fallbackId: "dcfmk-comments-anchor",
+        },
+      ];
+      if (targets.some((item) => !item.target)) return;
+
+      const nav = document.createElement("nav");
+      nav.id = "dcfmk-article-quick-nav";
+      nav.setAttribute("aria-label", "본문 빠른 이동");
+      for (const item of targets) {
+        const targetId = ensureTargetId(item.target, item.fallbackId);
+        const link = document.createElement("a");
+        link.href = `#${targetId}`;
+        link.dataset.role = item.role;
+        link.setAttribute("aria-label", item.label);
+
+        const icon = document.createElement("span");
+        icon.className = `dcfmk-quick-nav-icon dcfmk-quick-nav-icon-${item.role}`;
+        icon.setAttribute("aria-hidden", "true");
+        icon.textContent = item.icon;
+        const text = document.createElement("b");
+        text.textContent = item.label;
+        link.append(icon, text);
+        nav.appendChild(link);
+      }
+      document.body.appendChild(nav);
     },
 
     bindResponsiveMovieFrames(articleBody) {
@@ -7911,9 +8064,88 @@
     injectStyle() {
       if (document.getElementById("dcfmk-article-style")) return;
 
+      const fontAwesomeUrl = GM_getResourceURL("dcfmk-fontawesome");
       const style = document.createElement("style");
       style.id = "dcfmk-article-style";
       style.textContent = `
+        @font-face {
+          font-family: "dcfmk-FontAwesome";
+          src: url("${fontAwesomeUrl}") format("woff2");
+          font-style: normal;
+          font-weight: normal;
+          font-display: block;
+        }
+        #dcfmk-article-quick-nav {
+          display: none;
+        }
+        html.dcfmk-enabled #dcfmk-article-quick-nav {
+          position: fixed;
+          right: max(12px, calc((100vw - 1050px) / 2 - 40px));
+          bottom: 50px;
+          z-index: 100;
+          display: flex;
+          box-sizing: border-box;
+          width: 30px;
+          flex-direction: column;
+          margin: 0;
+          padding: 0;
+          overflow: visible;
+          border: 1px solid #d3d3d3;
+          border-radius: 4px;
+          background: #fcfcfc;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+          font-family: var(--dcfmk-font);
+        }
+        html.dcfmk-enabled #dcfmk-article-quick-nav > a {
+          position: relative;
+          display: flex;
+          box-sizing: border-box;
+          width: 28px;
+          height: 28px;
+          align-items: center;
+          justify-content: center;
+          margin: 0;
+          padding: 0;
+          border-bottom: 1px solid #e1e1e1;
+          color: #888;
+          text-decoration: none;
+        }
+        html.dcfmk-enabled #dcfmk-article-quick-nav > a:last-child {
+          border-bottom: 0;
+        }
+        html.dcfmk-enabled #dcfmk-article-quick-nav > a:hover,
+        html.dcfmk-enabled #dcfmk-article-quick-nav > a:focus-visible {
+          z-index: 1;
+          background: #f3f5fa;
+          color: var(--dcfmk-color-nav-light);
+          outline: 0;
+        }
+        html.dcfmk-enabled #dcfmk-article-quick-nav > a > b {
+          position: absolute;
+          overflow: hidden;
+          width: 1px;
+          height: 1px;
+          clip-path: inset(50%);
+          white-space: nowrap;
+        }
+        html.dcfmk-enabled #dcfmk-article-quick-nav .dcfmk-quick-nav-icon {
+          display: inline-block;
+          flex: 0 0 auto;
+          width: 16px;
+          color: currentColor;
+          font: normal normal normal 13px/1 "dcfmk-FontAwesome";
+          text-align: center;
+          text-rendering: auto;
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+        }
+        html.dcfmk-enabled #top,
+        html.dcfmk-enabled #bottom_listwrap,
+        html.dcfmk-enabled #dcfmk-article-top,
+        html.dcfmk-enabled #dcfmk-article-bottom,
+        html.dcfmk-enabled #dcfmk-comments-anchor {
+          scroll-margin-top: 8px;
+        }
         html.dcfmk-enabled .dcfmk-article {
           box-sizing: border-box;
           width: 100%;
