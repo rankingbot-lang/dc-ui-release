@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         디시인사이드 UI 변경
 // @namespace    https://gall.dcinside.com
-// @version      1.10.27
+// @version      1.11.0
 // @description  갤러리 UI 변경, 즐겨찾기·최근 방문 통합, 단축키, 개념글 알림, 광고 숨김 등
 // @author       rankingbot
 // @license      MIT
@@ -24,21 +24,53 @@
 (function () {
   "use strict";
 
-  const SCRIPT_VERSION = "1.10.27";
+  const SCRIPT_VERSION = "1.11.0";
   const THEME_ENABLED_KEY = "dcfmk:enabled";
   const LIST_SIZE_PREFERENCE_KEY = "dcfmk:list-size-preference";
   const SETTINGS_COLLAPSED_KEY = "dcfmk:settings-collapsed";
   const GALLERY_COVER_HIDDEN_KEY = "dcfmk:gallery-cover-hidden";
   const USER_IDENTIFIER_VISIBLE_KEY = "dcfmk:user-identifier-visible";
+  const CONCEPT_ALARM_ENABLED_KEY = "dcfmk:concept-alarm-enabled";
   const FAVORITE_SHORTCUT_CACHE_KEY = "dcfmk:favorite-shortcuts-cache";
   const FAVORITE_SHORTCUT_CACHE_READY_KEY = "dcfmk:favorite-shortcuts-cache-ready";
-  const VALID_LIST_SIZES = new Set(["30", "50", "100"]);
+  const UI_CONFIG = Object.freeze({
+    listSize: Object.freeze({
+      defaultValue: "30",
+      allowedValues: Object.freeze(["30", "50", "100"]),
+    }),
+  });
+  const VALID_LIST_SIZES = new Set(UI_CONFIG.listSize.allowedValues);
   const PAGE_RE = /^\/(?:(mini|mgallery|person)\/)?board\/(lists|view)\/?$/;
 
-  function preferredListSize() {
-    const savedSize = String(GM_getValue(LIST_SIZE_PREFERENCE_KEY, 30));
-    return VALID_LIST_SIZES.has(savedSize) ? savedSize : "30";
-  }
+  let configuredListSize = "";
+  const ListSizeConfig = Object.freeze({
+    normalize(value) {
+      const normalized = String(value ?? "");
+      return VALID_LIST_SIZES.has(normalized) ? normalized : "";
+    },
+
+    get() {
+      if (configuredListSize) return configuredListSize;
+      const savedSize = this.normalize(GM_getValue(LIST_SIZE_PREFERENCE_KEY, ""));
+      configuredListSize = savedSize || UI_CONFIG.listSize.defaultValue;
+      if (!savedSize) GM_setValue(LIST_SIZE_PREFERENCE_KEY, Number(configuredListSize));
+      return configuredListSize;
+    },
+
+    set(value) {
+      const normalized = this.normalize(value);
+      if (!normalized) return this.get();
+      configuredListSize = normalized;
+      GM_setValue(LIST_SIZE_PREFERENCE_KEY, Number(normalized));
+      syncConfiguredListLinks();
+      return configuredListSize;
+    },
+
+    apply(url) {
+      url.searchParams.set("list_num", this.get());
+      return url;
+    },
+  });
 
   function galleryListHref(rawHref, baseHref = location.href) {
     try {
@@ -51,11 +83,23 @@
       if (url.origin !== location.origin || !/\/(?:(?:mini|mgallery|person)\/)?board\/lists\/?$/.test(url.pathname)) {
         return url.href;
       }
-      url.searchParams.set("list_num", preferredListSize());
-      return url.href;
+      return ListSizeConfig.apply(url).href;
     } catch (_error) {
       return String(rawHref || "");
     }
+  }
+
+  function syncConfiguredListLinks() {
+    const selectors = [
+      "#dcfmk-gallery-strip a[href]",
+      "#dcfmk-sidebar .dcfmk-favorite-shortcut a[href]",
+      "#dcfmk-sidebar [data-role='sideConcept'][href]",
+      ".dcfmk-board-nav a[href]",
+    ];
+    document.querySelectorAll(selectors.join(",")).forEach((link) => {
+      const normalizedHref = galleryListHref(link.href);
+      if (normalizedHref !== link.href) link.href = normalizedHref;
+    });
   }
 
   const ListNavigationController = Object.freeze({
@@ -111,7 +155,7 @@
       const boardBasePath = currentLocation.pathname.replace(/(?:lists|view)\/?$/, "");
       const listUrl = new URL(`${boardBasePath}lists/`, currentLocation.origin);
       listUrl.searchParams.set("id", galleryId);
-      listUrl.searchParams.set("list_num", preferredListSize());
+      ListSizeConfig.apply(listUrl);
       const conceptUrl = new URL(listUrl);
       conceptUrl.searchParams.set("exception_mode", "recommend");
       const noticeUrl = new URL(listUrl);
@@ -170,6 +214,7 @@
 
   const AUTOMATED_REQUEST_PAUSED_KEY = "dcfmk:automated-request-paused";
   const AUTOMATED_REQUEST_LAST_AT_KEY = "dcfmk:automated-request-last-at";
+  const AUTOMATED_REQUEST_NAVIGATION_AT_KEY = "dcfmk:navigation-last-at";
   const AUTOMATED_REQUEST_LOCK_NAME = "dcfmk:automated-request";
   let automatedRequestLifecycle = new AbortController();
 
@@ -197,7 +242,11 @@
     },
 
     noteNavigation() {
-      GM_setValue(AUTOMATED_REQUEST_LAST_AT_KEY, Date.now());
+      GM_setValue(AUTOMATED_REQUEST_NAVIGATION_AT_KEY, Date.now());
+    },
+
+    lastNavigationAt() {
+      return Number(GM_getValue(AUTOMATED_REQUEST_NAVIGATION_AT_KEY, 0)) || 0;
     },
 
     stopLifecycle() {
@@ -243,14 +292,17 @@
       });
     },
 
-    async run(task, { force = false, shouldRun = null } = {}) {
+    async run(task, { force = false, shouldRun = null, navigationGapMs = this.minGapMs } = {}) {
       const signal = this.signal();
       const execute = async () => {
         if (signal.aborted) throw this.abortError();
         if (this.isPaused() && !force) throw new EmptyAutomatedResponseError();
         if (typeof shouldRun === "function" && !await shouldRun()) return undefined;
         const lastAt = Number(GM_getValue(AUTOMATED_REQUEST_LAST_AT_KEY, 0)) || 0;
-        await this.wait(Math.max(0, this.minGapMs - (Date.now() - lastAt)), signal);
+        const now = Date.now();
+        const automatedGap = Math.max(0, this.minGapMs - (now - lastAt));
+        const navigationGap = Math.max(0, Number(navigationGapMs) - (now - this.lastNavigationAt()));
+        await this.wait(Math.max(automatedGap, navigationGap), signal);
         if (signal.aborted) throw this.abortError();
         if (this.isPaused() && !force) throw new EmptyAutomatedResponseError();
         GM_setValue(AUTOMATED_REQUEST_LAST_AT_KEY, Date.now());
@@ -1311,6 +1363,12 @@
           checked: GM_getValue(USER_IDENTIFIER_VISIBLE_KEY, false) === true,
           change: (checked) => this.setUserIdentifierVisible(checked),
         },
+        {
+          id: "dcfmk-enable-concept-alarm",
+          label: "개념글 알림",
+          checked: ConceptAlarmController.isEnabled(),
+          change: (checked) => ConceptAlarmController.setEnabled(checked),
+        },
       ];
 
       const fragment = document.createDocumentFragment();
@@ -2017,10 +2075,46 @@
   let conceptAlarmParseCount = 0;
   let conceptAlarmUnchangedSkipCount = 0;
   let conceptAlarmRetainedParseNodes = 0;
+  let conceptListRequest = null;
+  let conceptListRequestKey = "";
+  let conceptParsedFingerprint = "";
+  let conceptParsedKey = "";
+  let conceptParsedPosts = [];
+  const CONCEPT_FEED_CACHE_TTL_MS = 10 * 60 * 1000;
   const ConceptAlarmController = Object.freeze({
     intervalMs: 15000,
     staleAfterMs: 10 * 60 * 1000,
     maxSeen: 500,
+
+    isEnabled() {
+      return GM_getValue(CONCEPT_ALARM_ENABLED_KEY, true) !== false;
+    },
+
+    syncDocumentState() {
+      const root = document.documentElement;
+      root.dataset.dcfmkConceptAlarmEnabled = String(this.isEnabled());
+      root.dataset.dcfmkConceptAlarmScheduled = String(conceptAlarmTimer !== 0);
+      root.dataset.dcfmkConceptAlarmRunning = String(conceptAlarmRunning);
+    },
+
+    clearSchedule() {
+      window.clearTimeout(conceptAlarmTimer);
+      conceptAlarmTimer = 0;
+      this.syncDocumentState();
+    },
+
+    setEnabled(enabled) {
+      const value = Boolean(enabled);
+      GM_setValue(CONCEPT_ALARM_ENABLED_KEY, value);
+      const input = document.getElementById("dcfmk-enable-concept-alarm");
+      if (input) input.checked = value;
+      if (!value) {
+        this.clearSchedule();
+        return;
+      }
+      AutomatedRequestCoordinator.resume();
+      this.scheduleDue(conceptAlarmContext);
+    },
 
     mount(context) {
       if (window.__dcConceptAlarmMounted) return;
@@ -2028,6 +2122,7 @@
       conceptAlarmContext = context;
       window.__dcConceptAlarmCheckNow = () => this.resume(context);
       window.__dcConceptAlarmState = () => ({
+        enabled: this.isEnabled(),
         running: conceptAlarmRunning,
         scheduled: conceptAlarmTimer !== 0,
         paused: AutomatedRequestCoordinator.isPaused(),
@@ -2071,34 +2166,44 @@
     },
 
     stop() {
-      window.clearTimeout(conceptAlarmTimer);
-      conceptAlarmTimer = 0;
+      this.clearSchedule();
       AutomatedRequestCoordinator.stopLifecycle();
     },
 
     schedule(context, delay = this.intervalMs) {
-      window.clearTimeout(conceptAlarmTimer);
-      conceptAlarmTimer = 0;
-      if (!context || document.visibilityState !== "visible" || AutomatedRequestCoordinator.isPaused()) return;
+      this.clearSchedule();
+      if (!this.isEnabled()
+        || !context
+        || document.visibilityState !== "visible"
+        || AutomatedRequestCoordinator.isPaused()) return;
       conceptAlarmTimer = window.setTimeout(() => {
         conceptAlarmTimer = 0;
+        this.syncDocumentState();
         this.check(context);
       }, Math.max(0, delay));
+      this.syncDocumentState();
     },
 
     scheduleDue(context) {
-      if (!context || document.visibilityState !== "visible" || AutomatedRequestCoordinator.isPaused()) return;
+      if (!this.isEnabled()
+        || !context
+        || document.visibilityState !== "visible"
+        || AutomatedRequestCoordinator.isPaused()) return;
       const elapsed = Date.now() - this.lastActivityAt(context);
       this.schedule(context, Math.max(0, this.intervalMs - elapsed));
     },
 
     resume(context) {
+      if (!this.isEnabled()) return;
       AutomatedRequestCoordinator.resume();
       return this.check(context, { force: true });
     },
 
     async check(context, { force = false } = {}) {
-      if (!context || conceptAlarmRunning || document.visibilityState !== "visible") return;
+      if (!this.isEnabled()
+        || !context
+        || conceptAlarmRunning
+        || document.visibilityState !== "visible") return;
       if (AutomatedRequestCoordinator.isPaused() && !force) return;
       if (!force) {
         const elapsed = Date.now() - this.lastActivityAt(context);
@@ -2109,10 +2214,12 @@
       }
 
       conceptAlarmRunning = true;
+      this.syncDocumentState();
       const keyPrefix = this.keyPrefix(context);
       try {
         const html = await this.requestList(context, { force });
         if (html === undefined) return;
+        if (!this.isEnabled()) return;
         const now = Date.now();
         const scan = this.scanPostIds(html);
         if (scan.ids.length === 0) throw new Error("개념글 목록을 찾지 못했습니다.");
@@ -2125,6 +2232,7 @@
         if (listUnchanged) {
           GM_setValue(`${keyPrefix}:checkedAt`, now);
           conceptAlarmUnchangedSkipCount += 1;
+          this.publishCachedFeed(context);
           return;
         }
 
@@ -2142,6 +2250,7 @@
         GM_setValue(`${keyPrefix}:listIds`, scan.ids);
         GM_setValue(`${keyPrefix}:seen`, mergedIds);
         GM_setValue(`${keyPrefix}:checkedAt`, now);
+        this.publishFeed(context, posts);
 
         for (const post of added.slice(0, 5).reverse()) this.notify(post, context);
       } catch (error) {
@@ -2152,7 +2261,10 @@
         }
       } finally {
         conceptAlarmRunning = false;
-        if (document.visibilityState === "visible" && !AutomatedRequestCoordinator.isPaused()) {
+        this.syncDocumentState();
+        if (this.isEnabled()
+          && document.visibilityState === "visible"
+          && !AutomatedRequestCoordinator.isPaused()) {
           this.schedule(context);
         }
       }
@@ -2167,8 +2279,9 @@
       return url.href;
     },
 
-    requestList(context, { force = false } = {}) {
-      return AutomatedRequestCoordinator.run((signal) => {
+    requestList(context, { force = false, skipDueCheck = false, navigationGapMs } = {}) {
+      if (conceptListRequest && conceptListRequestKey === context.galleryKey) return conceptListRequest;
+      const request = AutomatedRequestCoordinator.run((signal) => {
         GM_setValue(`${this.keyPrefix(context)}:requestedAt`, Date.now());
         if (typeof GM_xmlhttpRequest !== "function") {
           return fetch(context.urls.concept, {
@@ -2223,10 +2336,73 @@
         });
       }, {
         force,
-        shouldRun: force
+        navigationGapMs,
+        shouldRun: force || skipDueCheck
           ? null
           : () => Date.now() - this.lastActivityAt(context) >= this.intervalMs,
       });
+      conceptListRequestKey = context.galleryKey;
+      conceptListRequest = request.finally(() => {
+        if (conceptListRequest !== sharedRequest) return;
+        conceptListRequest = null;
+        conceptListRequestKey = "";
+      });
+      const sharedRequest = conceptListRequest;
+      return sharedRequest;
+    },
+
+    feedCacheKey(context) {
+      return `${this.keyPrefix(context)}:feed`;
+    },
+
+    cachedFeed(context) {
+      const cached = GM_getValue(this.feedCacheKey(context), null);
+      if (!cached || !Array.isArray(cached.posts)) return null;
+      return {
+        savedAt: Number(cached.savedAt) || 0,
+        posts: cached.posts.filter((post) => post && /^\d+$/.test(String(post.id)) && post.title && post.url),
+      };
+    },
+
+    publishFeed(context, posts) {
+      const feed = { savedAt: Date.now(), posts: posts.slice(0, 12) };
+      GM_setValue(this.feedCacheKey(context), feed);
+      document.dispatchEvent(new CustomEvent("dcfmk:concept-feed", {
+        detail: { galleryKey: context.galleryKey, posts: feed.posts },
+      }));
+      return feed;
+    },
+
+    publishCachedFeed(context) {
+      const cached = this.cachedFeed(context);
+      if (!cached?.posts.length) return null;
+      document.dispatchEvent(new CustomEvent("dcfmk:concept-feed", {
+        detail: { galleryKey: context.galleryKey, posts: cached.posts },
+      }));
+      return cached;
+    },
+
+    async loadFeed(context) {
+      const cached = this.cachedFeed(context);
+      if (cached?.posts.length) this.publishCachedFeed(context);
+      if (cached && Date.now() - cached.savedAt < CONCEPT_FEED_CACHE_TTL_MS) return cached.posts;
+      try {
+        const html = await this.requestList(context, { skipDueCheck: true, navigationGapMs: 250 });
+        if (html === undefined) return cached?.posts || [];
+        const scan = this.scanPostIds(html);
+        if (scan.ids.length === 0) throw new Error("개념글 목록을 찾지 못했습니다.");
+        const posts = this.parsePosts(scan, context);
+        if (posts.length === 0) throw new Error("개념글 목록을 찾지 못했습니다.");
+        this.publishFeed(context, posts);
+        return posts;
+      } catch (error) {
+        if (error?.name === "EmptyAutomatedResponseError") {
+          console.warn("[DC 자동 요청] 빈 응답으로 모든 자동 요청을 중지했습니다.");
+        } else if (error?.name !== "AbortError") {
+          console.debug("[DC 최신 개념글] 확인 실패", error);
+        }
+        return cached?.posts || [];
+      }
     },
 
     attributeValue(markup, name) {
@@ -2294,6 +2470,15 @@
     },
 
     parsePosts(scan, context) {
+      let fragmentHash = 2166136261;
+      for (let index = 0; index < scan.fragment.length; index += 1) {
+        fragmentHash ^= scan.fragment.charCodeAt(index);
+        fragmentHash = Math.imul(fragmentHash, 16777619);
+      }
+      const fingerprint = `${scan.fragment.length}:${fragmentHash >>> 0}`;
+      if (conceptParsedKey === context.galleryKey && conceptParsedFingerprint === fingerprint) {
+        return conceptParsedPosts.map((post) => ({ ...post }));
+      }
       const template = document.createElement("template");
       template.innerHTML = scan.fragment;
       const root = template.content;
@@ -2301,10 +2486,17 @@
       const posts = [];
       const seen = new Set();
 
-      const addPost = (id, title, url) => {
+      const countText = (value) => cleanText(value).replace(/[^\d]/g, "") || "0";
+      const addPost = (id, title, url, recommendCount = "0", commentCount = "0") => {
         if (!/^\d+$/.test(id) || !title || seen.has(id)) return;
         seen.add(id);
-        posts.push({ id, title, url });
+        posts.push({
+          id,
+          title,
+          url,
+          recommendCount: countText(recommendCount),
+          commentCount: countText(commentCount),
+        });
       };
 
       try {
@@ -2312,7 +2504,17 @@
           const mobileUrl = new URL(link.getAttribute("href"), "https://m.dcinside.com/");
           const id = mobileUrl.pathname.match(/\/(\d+)\/?$/)?.[1] || "";
           const title = cleanText(link.querySelector(".subjectin")?.textContent || link.textContent);
-          addPost(id, title, this.desktopPostUrl(context, id));
+          const row = link.closest(".gall-detail-lnktb");
+          const recommend = [...link.querySelectorAll(".ginfo li")]
+            .find((item) => cleanText(item.textContent).startsWith("추천"));
+          const comments = row?.querySelector(":scope > a.rt .ct");
+          addPost(
+            id,
+            title,
+            this.desktopPostUrl(context, id),
+            recommend?.querySelector("span")?.textContent || recommend?.textContent,
+            comments?.textContent,
+          );
         }
 
         for (const row of root.querySelectorAll("table.gall_list tr.ub-content[data-no]")) {
@@ -2324,8 +2526,17 @@
           titleNode.querySelectorAll(".blind, .icon_img, .sp_img, .reply_numbox, .reply_num").forEach((node) => node.remove());
           const title = cleanText(titleNode.textContent);
           titleNode.replaceChildren();
-          addPost(id, title, new URL(link.getAttribute("href"), context.urls.concept).href);
+          addPost(
+            id,
+            title,
+            new URL(link.getAttribute("href"), context.urls.concept).href,
+            row.querySelector(".gall_recommend")?.textContent,
+            row.querySelector(".reply_num")?.textContent,
+          );
         }
+        conceptParsedKey = context.galleryKey;
+        conceptParsedFingerprint = fingerprint;
+        conceptParsedPosts = posts.map((post) => ({ ...post }));
         return posts;
       } finally {
         root.replaceChildren();
@@ -2412,6 +2623,257 @@
         }
         #dc-concept-alarm-stack span {
           font-size: 12px;
+        }
+      `;
+      document.documentElement.appendChild(style);
+    },
+  });
+
+  const FeaturedPostsView = Object.freeze({
+    maxItems: 7,
+
+    mount(context) {
+      const conceptActive = new URL(location.href).searchParams.get("exception_mode") === "recommend";
+      if (context.pageType === "list") this.injectStyle();
+      if (context.pageType !== "list" || conceptActive) {
+        document.getElementById("dcfmk-featured-posts")?.remove();
+        return null;
+      }
+      let section = document.getElementById("dcfmk-featured-posts");
+      if (section) return section;
+
+      section = document.createElement("section");
+      section.id = "dcfmk-featured-posts";
+      section.setAttribute("aria-label", "실시간 베스트와 최신 개념글");
+      section.innerHTML = `
+        <div class="dcfmk-featured-column dcfmk-featured-realtime">
+          <h3><a data-role="realtimeHeading">실시간 베스트</a></h3>
+          <ul data-role="realtimeList"></ul>
+        </div>
+        <div class="dcfmk-featured-column dcfmk-featured-concept">
+          <h3><a data-role="conceptHeading"></a></h3>
+          <ul data-role="conceptList"><li class="dcfmk-featured-status">개념글을 불러오는 중입니다.</li></ul>
+        </div>
+      `;
+      this.renderRealtime(section);
+      this.renderHeading(section, context);
+      let conceptRendered = false;
+      const renderConceptOnce = (posts) => {
+        if (conceptRendered || !posts.length) return false;
+        this.renderConcept(section, posts);
+        conceptRendered = true;
+        document.removeEventListener("dcfmk:concept-feed", onConceptFeed);
+        return true;
+      };
+      const onConceptFeed = (event) => {
+        if (event.detail?.galleryKey !== context.galleryKey) return;
+        renderConceptOnce(event.detail.posts || []);
+      };
+      document.addEventListener("dcfmk:concept-feed", onConceptFeed);
+      const cached = ConceptAlarmController.cachedFeed(context);
+      if (cached?.posts.length) renderConceptOnce(cached.posts);
+      else ConceptAlarmController.loadFeed(context);
+      return section;
+    },
+
+    renderHeading(section, context) {
+      const heading = section.querySelector('[data-role="conceptHeading"]');
+      if (!heading) return;
+      const galleryName = cleanText(DcAdapter.galleryTitle()?.textContent)
+        .replace(/\s*(?:(?:미니|마이너|인물)\s*)?갤러리\s*(?:미니|마이너|인물)?\s*$/, "")
+        || context.galleryId;
+      heading.href = context.urls.concept;
+      heading.textContent = `${galleryName} 최신 개념글`;
+    },
+
+    realtimeLinks() {
+      const source = document.querySelector(".r_timebest");
+      if (!source) return [];
+      const heading = source.querySelector("header .tit a, h3 a");
+      const candidates = [
+        ...source.querySelectorAll(".rcont_imgtxt_box > .txt a[href]"),
+        ...source.querySelectorAll(".rcontimg_box a.inner[href]"),
+      ];
+      const seen = new Set();
+      const links = [];
+      for (const link of candidates) {
+        const title = cleanText(link.querySelector("strong")?.textContent || link.textContent);
+        const href = link.href;
+        if (!title || !href || seen.has(href)) continue;
+        seen.add(href);
+        links.push({ title, href });
+        if (links.length >= this.maxItems) break;
+      }
+      return { heading, links };
+    },
+
+    renderRealtime(section) {
+      const feed = this.realtimeLinks();
+      const heading = section.querySelector('[data-role="realtimeHeading"]');
+      const list = section.querySelector('[data-role="realtimeList"]');
+      if (!list) return;
+      if (feed?.heading?.href) heading.href = feed.heading.href;
+      list.replaceChildren();
+      for (const post of feed?.links || []) {
+        const item = document.createElement("li");
+        const link = document.createElement("a");
+        link.className = "dcfmk-featured-title";
+        link.href = post.href;
+        link.textContent = post.title;
+        link.title = post.title;
+        item.appendChild(link);
+        list.appendChild(item);
+      }
+      if (!list.childElementCount) {
+        const empty = document.createElement("li");
+        empty.className = "dcfmk-featured-status";
+        empty.textContent = "표시할 실시간 베스트가 없습니다.";
+        list.appendChild(empty);
+      }
+    },
+
+    renderConcept(section, posts) {
+      const list = section.querySelector('[data-role="conceptList"]');
+      if (!list) return;
+      list.replaceChildren();
+      for (const post of posts.slice(0, this.maxItems)) {
+        const item = document.createElement("li");
+        const title = document.createElement("a");
+        title.className = "dcfmk-featured-title";
+        title.href = post.url;
+        title.textContent = post.title;
+        title.title = post.title;
+
+        const comments = document.createElement("a");
+        comments.className = "dcfmk-featured-comments";
+        const commentUrl = new URL(post.url, location.href);
+        commentUrl.hash = "focus_cmt";
+        comments.href = commentUrl.href;
+        comments.textContent = String(post.commentCount || "0");
+        comments.setAttribute("aria-label", `댓글 ${post.commentCount || "0"}개`);
+
+        const recommends = document.createElement("span");
+        recommends.className = "dcfmk-featured-recommends";
+        recommends.textContent = String(post.recommendCount || "0");
+        recommends.setAttribute("aria-label", `추천 ${post.recommendCount || "0"}개`);
+        item.append(title, comments, recommends);
+        list.appendChild(item);
+      }
+      if (!list.childElementCount) {
+        const empty = document.createElement("li");
+        empty.className = "dcfmk-featured-status";
+        empty.textContent = "표시할 최신 개념글이 없습니다.";
+        list.appendChild(empty);
+      }
+    },
+
+    injectStyle() {
+      if (document.getElementById("dcfmk-featured-posts-style")) return;
+      const style = document.createElement("style");
+      style.id = "dcfmk-featured-posts-style";
+      style.textContent = `
+        #dcfmk-featured-posts { display: none; }
+        html.dcfmk-enabled #dcfmk-featured-posts {
+          display: grid;
+          box-sizing: border-box;
+          width: 100%;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+          gap: 20px;
+          margin: 0 0 12px;
+          padding: 0 13px 10px;
+          border: 0;
+          background: #fff;
+          font-family: Arial, "Malgun Gothic", sans-serif;
+        }
+        html.dcfmk-enabled #container:has(#dcfmk-featured-posts) {
+          margin-top: 5px !important;
+        }
+        html.dcfmk-enabled.dcfmk-gallery-major #gall_top_recom {
+          display: none !important;
+        }
+        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-column {
+          min-width: 0;
+        }
+        html.dcfmk-enabled #dcfmk-featured-posts h3 {
+          height: 27px;
+          margin: 0;
+          border: 0;
+          font-size: 16px;
+          line-height: 26px;
+        }
+        html.dcfmk-enabled #dcfmk-featured-posts h3 a {
+          color: #29367c;
+          font-weight: 700;
+          text-decoration: none;
+        }
+        html.dcfmk-enabled #dcfmk-featured-posts h3 a:hover,
+        html.dcfmk-enabled #dcfmk-featured-posts h3 a:focus-visible {
+          text-decoration: underline;
+        }
+        html.dcfmk-enabled #dcfmk-featured-posts ul {
+          margin: 5px 0 0;
+          padding: 0;
+          list-style: none;
+        }
+        html.dcfmk-enabled #dcfmk-featured-posts li {
+          display: flex;
+          box-sizing: border-box;
+          min-width: 0;
+          height: 22px;
+          align-items: center;
+          gap: 6px;
+          padding: 2px 0 3px;
+          font-size: 12px;
+          line-height: 17px;
+        }
+        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-title {
+          display: block;
+          min-width: 0;
+          flex: 1 1 auto;
+          overflow: hidden;
+          color: #333;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          text-decoration: none;
+        }
+        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-title::before {
+          content: "·";
+          margin-right: 5px;
+          color: #8c8c8c;
+        }
+        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-title:hover,
+        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-title:focus-visible {
+          color: #29367c;
+          text-decoration: underline;
+        }
+        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-comments,
+        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-recommends {
+          flex: 0 0 auto;
+          font-size: 11px;
+          text-decoration: none;
+        }
+        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-comments {
+          color: #377ee9;
+        }
+        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-comments::before {
+          content: "[";
+        }
+        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-comments::after {
+          content: "]";
+        }
+        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-recommends {
+          min-width: 25px;
+          color: #777;
+          text-align: right;
+        }
+        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-recommends::before {
+          content: "▲";
+          margin-right: 2px;
+          color: #999;
+          font-size: 8px;
+        }
+        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-status {
+          color: #999;
         }
       `;
       document.documentElement.appendChild(style);
@@ -3526,7 +3988,7 @@
         html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list li:last-child {
           border-bottom: 0;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list li.dcfmk-custom-setting:nth-child(2) {
+        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list li.dcfmk-custom-setting:nth-child(3) {
           border-bottom-color: #d5d8e2;
         }
         html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list li > button,
@@ -3736,7 +4198,6 @@
   let settingsModalTimers = [];
   let settingsModalLastTrigger = null;
   let settingsModalArmObserver = null;
-  let settingsModalCloseGuard = null;
   let settingsModalPointerCloseTrigger = null;
   let settingsUserMemoOpen = false;
   const SettingsModalView = Object.freeze({
@@ -3778,13 +4239,11 @@
             settingsUserMemoOpen = false;
             settingsModalPointerCloseTrigger = null;
             this.close();
-            this.guardClosedPanel("#user_memo_config");
             return;
           }
 
           settingsModalPointerCloseTrigger = null;
           settingsUserMemoOpen = true;
-          this.clearCloseGuard();
           document.querySelectorAll("#user_memo_config").forEach((node) => node.remove());
           ShellView.ensureNativeSettingsAnchor();
           this.arm(label, button);
@@ -3811,10 +4270,8 @@
           event.preventDefault();
           event.stopImmediatePropagation();
           this.close();
-          this.guardClosedPanel(panelSelector);
           return;
         }
-        this.clearCloseGuard();
         if (!overlay.hidden && settingsModalLastTrigger && settingsModalLastTrigger !== button) {
           // Close the previous native layer before the next row's inline handler runs.
           // Closing later from the bubble-phase arm() can accidentally consume the
@@ -3947,32 +4404,6 @@
       }
     },
 
-    clearCloseGuard() {
-      settingsModalCloseGuard?.observer?.disconnect();
-      if (settingsModalCloseGuard?.timer) window.clearTimeout(settingsModalCloseGuard.timer);
-      settingsModalCloseGuard = null;
-    },
-
-    guardClosedPanel(selector) {
-      this.clearCloseGuard();
-      if (!selector) return;
-      const removeMatching = (root) => {
-        if (!(root instanceof Element || root instanceof Document || root instanceof DocumentFragment)) return;
-        const matches = [];
-        if (root instanceof Element && root.matches(selector)) matches.push(root);
-        root.querySelectorAll?.(selector).forEach((node) => matches.push(node));
-        matches.forEach((node) => node.remove());
-      };
-      removeMatching(document);
-      if (typeof MutationObserver !== "function") return;
-      const observer = new MutationObserver((records) => {
-        for (const record of records) record.addedNodes.forEach(removeMatching);
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
-      const timer = window.setTimeout(() => this.clearCloseGuard(), 5000);
-      settingsModalCloseGuard = { observer, timer, selector };
-    },
-
     arm(label, trigger) {
       if (settingsModalState) this.close();
       settingsModalLastTrigger = trigger || document.activeElement;
@@ -4014,6 +4445,7 @@
       const host = overlay?.querySelector(".dcfmk-settings-modal-host");
       if (!overlay || !host) return;
       overlay.querySelector("#dcfmk-settings-modal-title").textContent = label || "설정";
+      overlay.querySelector(".dcfmk-settings-modal-dialog").dataset.source = "";
       host.innerHTML = '<div class="dcfmk-settings-loading" role="status">설정을 불러오는 중입니다.</div>';
       overlay.hidden = false;
       this.positionPanel();
@@ -4273,9 +4705,9 @@
         node.classList.remove("dcfmk-native-settings-layer", "dcfmk-native-settings-auxiliary");
         node.querySelectorAll(".dcfmk-native-settings-nested")
           .forEach((nested) => nested.classList.remove("dcfmk-native-settings-nested"));
-        if (!node.isConnected) continue;
         if (style == null) node.removeAttribute("style");
         else node.setAttribute("style", style);
+        if (!node.isConnected) continue;
         if (parent?.isConnected) parent.insertBefore(node, nextSibling?.isConnected ? nextSibling : null);
         else document.body.appendChild(node);
         node.style.display = "none";
@@ -6316,6 +6748,11 @@
       const managerLine = this.mountManagerLine(pageHead);
       const galleryCover = document.querySelector(".dcfmk-gallery-cover");
       const headerRoot = galleryCover || galleryIntro || pageHead;
+      const featuredPosts = FeaturedPostsView.mount(pageContext);
+      const leftContent = DcAdapter.leftContent();
+      if (featuredPosts && leftContent?.firstElementChild !== featuredPosts) {
+        leftContent?.prepend(featuredPosts);
+      }
       if (headerRoot.parentNode !== tabsParent
         || !(headerRoot.compareDocumentPosition(listTabs) & Node.DOCUMENT_POSITION_FOLLOWING)) {
         tabsParent.insertBefore(headerRoot, listTabs);
@@ -6465,7 +6902,7 @@
           const option = event.target.closest?.("#listSizeLayer a");
           if (!option || !control.contains(option)) return;
           const size = cleanText(option.textContent).match(/(?:30|50|100)/)?.[0];
-          if (size) GM_setValue(LIST_SIZE_PREFERENCE_KEY, Number(size));
+          if (size) ListSizeConfig.set(size);
         }, true);
       }
     },
