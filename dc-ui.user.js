@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         디시인사이드 UI 변경
 // @namespace    https://gall.dcinside.com
-// @version      1.11.0
+// @version      2.0.0
 // @description  갤러리 UI 변경, 즐겨찾기·최근 방문 통합, 단축키, 개념글 알림, 광고 숨김 등
 // @author       rankingbot
 // @license      MIT
@@ -15,7 +15,6 @@
 // @grant        GM_getValue
 // @grant        GM_getResourceURL
 // @grant        GM_setValue
-// @grant        GM_registerMenuCommand
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
 // @connect      m.dcinside.com
@@ -24,7 +23,7 @@
 (function () {
   "use strict";
 
-  const SCRIPT_VERSION = "1.11.0";
+  const SCRIPT_VERSION = "2.0.0";
   const THEME_ENABLED_KEY = "dcfmk:enabled";
   const LIST_SIZE_PREFERENCE_KEY = "dcfmk:list-size-preference";
   const SETTINGS_COLLAPSED_KEY = "dcfmk:settings-collapsed";
@@ -72,7 +71,7 @@
     },
   });
 
-  function galleryListHref(rawHref, baseHref = location.href) {
+  function galleryBoardHref(rawHref, baseHref = location.href) {
     try {
       const url = new URL(rawHref, baseHref);
       const shortcut = url.pathname.match(/^\/(mini|mgallery|person)\/([^/]+)\/?$/);
@@ -80,7 +79,7 @@
         url.pathname = `/${shortcut[1]}/board/lists/`;
         url.search = `?id=${encodeURIComponent(shortcut[2])}`;
       }
-      if (url.origin !== location.origin || !/\/(?:(?:mini|mgallery|person)\/)?board\/lists\/?$/.test(url.pathname)) {
+      if (url.origin !== location.origin || !/\/(?:(?:mini|mgallery|person)\/)?board\/(?:lists|view)\/?$/.test(url.pathname)) {
         return url.href;
       }
       return ListSizeConfig.apply(url).href;
@@ -97,13 +96,18 @@
       ".dcfmk-board-nav a[href]",
     ];
     document.querySelectorAll(selectors.join(",")).forEach((link) => {
-      const normalizedHref = galleryListHref(link.href);
+      const normalizedHref = galleryBoardHref(link.href);
       if (normalizedHref !== link.href) link.href = normalizedHref;
     });
+    const nativeListUrl = document.getElementById("list_url");
+    if (nativeListUrl && "value" in nativeListUrl) {
+      const normalizedValue = galleryBoardHref(nativeListUrl.value);
+      if (normalizedValue && normalizedValue !== nativeListUrl.value) nativeListUrl.value = normalizedValue;
+    }
   }
 
-  const ListNavigationController = Object.freeze({
-    rawListHref(control) {
+  const BoardNavigationController = Object.freeze({
+    rawHrefFromControl(control) {
       if (control instanceof HTMLAnchorElement) return control.getAttribute("href") || "";
       const onclick = control?.getAttribute?.("onclick") || "";
       return onclick.match(/\bgoList\s*\(\s*(['"])(.*?)\1/)?.[2] || "";
@@ -116,8 +120,8 @@
 
       const control = event.target.closest?.("a[href], button[onclick*='goList']");
       if (!control || control.closest("#dcfmk-theme-toggle")) return;
-      const rawHref = this.rawListHref(control);
-      if (!rawHref || /^javascript:/i.test(rawHref)) return;
+      const rawHref = this.rawHrefFromControl(control);
+      if (!rawHref || /^javascript:/i.test(rawHref) || rawHref.startsWith("#")) return;
 
       let originalUrl;
       try {
@@ -125,7 +129,7 @@
       } catch (_error) {
         return;
       }
-      const normalizedHref = galleryListHref(originalUrl.href);
+      const normalizedHref = galleryBoardHref(originalUrl.href);
       if (normalizedHref === originalUrl.href) return;
 
       event.preventDefault();
@@ -152,6 +156,7 @@
 
       const galleryType = match[1] === "mgallery" ? "minor" : (match[1] || "major");
       const galleryId = new URL(currentLocation.href).searchParams.get("id") || "unknown";
+      const isRealtimeBest = galleryType === "major" && galleryId === "dcbest";
       const boardBasePath = currentLocation.pathname.replace(/(?:lists|view)\/?$/, "");
       const listUrl = new URL(`${boardBasePath}lists/`, currentLocation.origin);
       listUrl.searchParams.set("id", galleryId);
@@ -168,6 +173,7 @@
         galleryType,
         galleryId,
         galleryKey: `${galleryType}:${galleryId}`,
+        isRealtimeBest,
         urls: Object.freeze({
           galleryHome: currentLocation.origin,
           list: listUrl.href,
@@ -185,7 +191,7 @@
   const initialThemeEnabled = GM_getValue(THEME_ENABLED_KEY, true) !== false;
   if (window.__dcfmkInitialized) return;
   window.__dcfmkInitialized = true;
-  ListNavigationController.mount();
+  BoardNavigationController.mount();
 
   const earlyShield = initialThemeEnabled ? document.createElement("style") : null;
   let earlyShieldObserver = null;
@@ -495,8 +501,21 @@
     },
 
     ownGallogUrl(root = document) {
-      const directLink = this.query("#login_box a[href*='gallog.dcinside.com/']", root);
-      if (directLink?.href && !/^https:\/\/gallog\.dcinside\.com\/?$/.test(directLink.href)) return directLink.href;
+      const profileBase = (rawHref) => {
+        try {
+          const url = new URL(rawHref);
+          if (url.hostname !== "gallog.dcinside.com") return "";
+          const profileId = url.pathname.split("/").filter(Boolean)[0] || "";
+          if (!/^[a-zA-Z0-9_-]+$/.test(profileId)) return "";
+          return `https://gallog.dcinside.com/${profileId}`;
+        } catch (_error) {
+          return "";
+        }
+      };
+      const directProfileBase = this.queryAll("#login_box a[href*='gallog.dcinside.com/']", root)
+        .map((link) => profileBase(link.href))
+        .find(Boolean) || "";
+      if (directProfileBase) return directProfileBase;
 
       const gallogTrigger = this.query("#login_box .writer_nikcon", root);
       const triggerSource = gallogTrigger?.getAttribute("onclick") || gallogTrigger?.getAttribute("title") || "";
@@ -1038,11 +1057,11 @@
     init(context) {
       const root = document.documentElement;
       root.classList.add("dcfmk-ready", `dcfmk-page-${context.pageType}`, `dcfmk-gallery-${context.galleryType}`);
+      root.classList.toggle("dcfmk-realtime-best", context.isRealtimeBest);
       root.dataset.dcfmkVersion = SCRIPT_VERSION;
       this.injectBaseStyle();
       root.classList.toggle("dcfmk-enabled", this.isEnabled());
       this.mountScreenToggle();
-      this.registerMenuCommand();
     },
 
     setEnabled(enabled) {
@@ -1110,17 +1129,6 @@
         return;
       }
       document.body.appendChild(button);
-    },
-
-    registerMenuCommand() {
-      if (typeof GM_registerMenuCommand !== "function") return;
-
-      const enabled = this.isEnabled();
-      const label = enabled ? "DC Compact UI 끄기 (원본 UI)" : "DC Compact UI 켜기";
-      GM_registerMenuCommand(label, () => {
-        this.setEnabled(!enabled);
-        location.reload();
-      });
     },
 
     injectBaseStyle() {
@@ -1609,7 +1617,7 @@
           url.pathname = `/${shortcut[1]}/board/lists/`;
           url.search = `?id=${encodeURIComponent(shortcut[2])}`;
         }
-        return galleryListHref(url.href);
+        return galleryBoardHref(url.href);
       }
 
       const item = source.closest("li");
@@ -1620,7 +1628,7 @@
       const type = item?.querySelector("[data-gtype]")?.getAttribute("data-gtype")
         || (item?.classList.contains("mi") ? "MI" : item?.classList.contains("m") ? "M" : "G");
       const prefix = type === "MI" ? "/mini" : type === "M" ? "/mgallery" : "";
-      return galleryListHref(`${location.origin}${prefix}/board/lists/?id=${encodeURIComponent(id)}`);
+      return galleryBoardHref(`${location.origin}${prefix}/board/lists/?id=${encodeURIComponent(id)}`);
     },
 
     renderLinks(container, links, emptyLabel, removable) {
@@ -2108,15 +2116,12 @@
       GM_setValue(CONCEPT_ALARM_ENABLED_KEY, value);
       const input = document.getElementById("dcfmk-enable-concept-alarm");
       if (input) input.checked = value;
-      if (!value) {
-        this.clearSchedule();
-        return;
-      }
-      AutomatedRequestCoordinator.resume();
+      if (value) AutomatedRequestCoordinator.resume();
       this.scheduleDue(conceptAlarmContext);
     },
 
     mount(context) {
+      if (context.isRealtimeBest) return;
       if (window.__dcConceptAlarmMounted) return;
       window.__dcConceptAlarmMounted = true;
       conceptAlarmContext = context;
@@ -2131,7 +2136,6 @@
         unchangedSkipCount: conceptAlarmUnchangedSkipCount,
         retainedParseNodes: conceptAlarmRetainedParseNodes,
       });
-      GM_registerMenuCommand?.("디시 자동 요청 다시 시작", () => this.resume(context));
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState !== "visible") {
           this.stop();
@@ -2172,8 +2176,7 @@
 
     schedule(context, delay = this.intervalMs) {
       this.clearSchedule();
-      if (!this.isEnabled()
-        || !context
+      if (!context
         || document.visibilityState !== "visible"
         || AutomatedRequestCoordinator.isPaused()) return;
       conceptAlarmTimer = window.setTimeout(() => {
@@ -2185,8 +2188,7 @@
     },
 
     scheduleDue(context) {
-      if (!this.isEnabled()
-        || !context
+      if (!context
         || document.visibilityState !== "visible"
         || AutomatedRequestCoordinator.isPaused()) return;
       const elapsed = Date.now() - this.lastActivityAt(context);
@@ -2194,14 +2196,12 @@
     },
 
     resume(context) {
-      if (!this.isEnabled()) return;
       AutomatedRequestCoordinator.resume();
       return this.check(context, { force: true });
     },
 
     async check(context, { force = false } = {}) {
-      if (!this.isEnabled()
-        || !context
+      if (!context
         || conceptAlarmRunning
         || document.visibilityState !== "visible") return;
       if (AutomatedRequestCoordinator.isPaused() && !force) return;
@@ -2219,25 +2219,23 @@
       try {
         const html = await this.requestList(context, { force });
         if (html === undefined) return;
-        if (!this.isEnabled()) return;
         const now = Date.now();
         const scan = this.scanPostIds(html);
-        if (scan.ids.length === 0) throw new Error("개념글 목록을 찾지 못했습니다.");
+        if (!scan.fragment) throw new Error("개념글 목록을 찾지 못했습니다.");
 
         const previousListIds = GM_getValue(`${keyPrefix}:listIds`, []);
         const listUnchanged = Array.isArray(previousListIds)
           && previousListIds.length === scan.ids.length
           && previousListIds.every((id, index) => String(id) === scan.ids[index]);
         const lastCheckedAt = Number(GM_getValue(`${keyPrefix}:checkedAt`, 0)) || 0;
+        const posts = scan.ids.length ? this.parsePosts(scan, context) : [];
+        if (scan.ids.length && posts.length === 0) throw new Error("개념글 목록을 찾지 못했습니다.");
         if (listUnchanged) {
           GM_setValue(`${keyPrefix}:checkedAt`, now);
           conceptAlarmUnchangedSkipCount += 1;
-          this.publishCachedFeed(context);
+          this.publishFeed(context, posts);
           return;
         }
-
-        const posts = this.parsePosts(scan, context);
-        if (posts.length === 0) throw new Error("개념글 목록을 찾지 못했습니다.");
 
         const previousIds = GM_getValue(`${keyPrefix}:seen`, []);
         const canCompare = Array.isArray(previousIds)
@@ -2252,7 +2250,9 @@
         GM_setValue(`${keyPrefix}:checkedAt`, now);
         this.publishFeed(context, posts);
 
-        for (const post of added.slice(0, 5).reverse()) this.notify(post, context);
+        if (this.isEnabled()) {
+          for (const post of added.slice(0, 5).reverse()) this.notify(post, context);
+        }
       } catch (error) {
         if (error?.name === "EmptyAutomatedResponseError") {
           console.warn("[DC 자동 요청] 빈 응답으로 모든 자동 요청을 중지했습니다.");
@@ -2262,8 +2262,7 @@
       } finally {
         conceptAlarmRunning = false;
         this.syncDocumentState();
-        if (this.isEnabled()
-          && document.visibilityState === "visible"
+        if (document.visibilityState === "visible"
           && !AutomatedRequestCoordinator.isPaused()) {
           this.schedule(context);
         }
@@ -2364,35 +2363,56 @@
       };
     },
 
+    freshCachedFeed(context) {
+      const cached = this.cachedFeed(context);
+      if (!cached?.savedAt) return null;
+      const age = Date.now() - cached.savedAt;
+      return age >= 0 && age < CONCEPT_FEED_CACHE_TTL_MS ? cached : null;
+    },
+
     publishFeed(context, posts) {
       const feed = { savedAt: Date.now(), posts: posts.slice(0, 12) };
       GM_setValue(this.feedCacheKey(context), feed);
       document.dispatchEvent(new CustomEvent("dcfmk:concept-feed", {
-        detail: { galleryKey: context.galleryKey, posts: feed.posts },
+        detail: {
+          galleryKey: context.galleryKey,
+          posts: feed.posts,
+          status: feed.posts.length ? "ready" : "empty",
+        },
       }));
       return feed;
     },
 
     publishCachedFeed(context) {
-      const cached = this.cachedFeed(context);
-      if (!cached?.posts.length) return null;
+      const cached = this.freshCachedFeed(context);
+      if (!cached) return null;
       document.dispatchEvent(new CustomEvent("dcfmk:concept-feed", {
-        detail: { galleryKey: context.galleryKey, posts: cached.posts },
+        detail: {
+          galleryKey: context.galleryKey,
+          posts: cached.posts,
+          status: cached.posts.length ? "ready" : "empty",
+        },
       }));
       return cached;
     },
 
+    publishFeedError(context) {
+      document.dispatchEvent(new CustomEvent("dcfmk:concept-feed", {
+        detail: { galleryKey: context.galleryKey, posts: [], status: "error" },
+      }));
+    },
+
     async loadFeed(context) {
-      const cached = this.cachedFeed(context);
-      if (cached?.posts.length) this.publishCachedFeed(context);
-      if (cached && Date.now() - cached.savedAt < CONCEPT_FEED_CACHE_TTL_MS) return cached.posts;
+      const cached = this.freshCachedFeed(context);
+      if (cached) this.publishCachedFeed(context);
+      if (cached) return cached.posts;
       try {
         const html = await this.requestList(context, { skipDueCheck: true, navigationGapMs: 250 });
         if (html === undefined) return cached?.posts || [];
         const scan = this.scanPostIds(html);
-        if (scan.ids.length === 0) throw new Error("개념글 목록을 찾지 못했습니다.");
-        const posts = this.parsePosts(scan, context);
-        if (posts.length === 0) throw new Error("개념글 목록을 찾지 못했습니다.");
+        if (!scan.fragment) throw new Error("개념글 목록을 찾지 못했습니다.");
+        const posts = scan.ids.length ? this.parsePosts(scan, context) : [];
+        if (scan.ids.length && posts.length === 0) throw new Error("개념글 목록을 찾지 못했습니다.");
         this.publishFeed(context, posts);
         return posts;
       } catch (error) {
@@ -2401,6 +2421,7 @@
         } else if (error?.name !== "AbortError") {
           console.debug("[DC 최신 개념글] 확인 실패", error);
         }
+        if (!cached) this.publishFeedError(context);
         return cached?.posts || [];
       }
     },
@@ -2547,7 +2568,6 @@
     desktopPostUrl(context, postId) {
       const url = new URL(context.urls.list);
       url.pathname = url.pathname.replace(/\/lists\/?$/, "/view/");
-      url.searchParams.delete("list_num");
       url.searchParams.set("no", postId);
       url.searchParams.set("exception_mode", "recommend");
       url.searchParams.set("page", "1");
@@ -2634,8 +2654,8 @@
 
     mount(context) {
       const conceptActive = new URL(location.href).searchParams.get("exception_mode") === "recommend";
-      if (context.pageType === "list") this.injectStyle();
-      if (context.pageType !== "list" || conceptActive) {
+      if (context.pageType === "list" && !context.isRealtimeBest) this.injectStyle();
+      if (context.pageType !== "list" || conceptActive || context.isRealtimeBest) {
         document.getElementById("dcfmk-featured-posts")?.remove();
         return null;
       }
@@ -2658,21 +2678,29 @@
       this.renderRealtime(section);
       this.renderHeading(section, context);
       let conceptRendered = false;
-      const renderConceptOnce = (posts) => {
-        if (conceptRendered || !posts.length) return false;
-        this.renderConcept(section, posts);
+      const renderConceptOnce = (posts, status = posts.length ? "ready" : "loading") => {
+        if (conceptRendered) return false;
+        if (posts.length) {
+          this.renderConcept(section, posts);
+        } else if (status === "empty") {
+          this.renderConceptStatus(section, "등록된 개념글이 없습니다.");
+        } else if (status === "error") {
+          this.renderConceptStatus(section, "개념글을 불러오지 못했습니다.");
+        } else {
+          return false;
+        }
         conceptRendered = true;
         document.removeEventListener("dcfmk:concept-feed", onConceptFeed);
         return true;
       };
       const onConceptFeed = (event) => {
         if (event.detail?.galleryKey !== context.galleryKey) return;
-        renderConceptOnce(event.detail.posts || []);
+        renderConceptOnce(event.detail.posts || [], event.detail.status);
       };
       document.addEventListener("dcfmk:concept-feed", onConceptFeed);
-      const cached = ConceptAlarmController.cachedFeed(context);
-      if (cached?.posts.length) renderConceptOnce(cached.posts);
-      else ConceptAlarmController.loadFeed(context);
+      const cached = ConceptAlarmController.freshCachedFeed(context);
+      if (cached) renderConceptOnce(cached.posts, cached.posts.length ? "ready" : "empty");
+      ConceptAlarmController.loadFeed(context);
       return section;
     },
 
@@ -2760,11 +2788,17 @@
         list.appendChild(item);
       }
       if (!list.childElementCount) {
-        const empty = document.createElement("li");
-        empty.className = "dcfmk-featured-status";
-        empty.textContent = "표시할 최신 개념글이 없습니다.";
-        list.appendChild(empty);
+        this.renderConceptStatus(section, "등록된 개념글이 없습니다.");
       }
+    },
+
+    renderConceptStatus(section, message) {
+      const list = section.querySelector('[data-role="conceptList"]');
+      if (!list) return;
+      const status = document.createElement("li");
+      status.className = "dcfmk-featured-status";
+      status.textContent = message;
+      list.replaceChildren(status);
     },
 
     injectStyle() {
@@ -2777,8 +2811,8 @@
           display: grid;
           box-sizing: border-box;
           width: 100%;
-          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-          gap: 20px;
+          grid-template-columns: 49% 49%;
+          column-gap: 2%;
           margin: 0 0 12px;
           padding: 0 13px 10px;
           border: 0;
@@ -2831,10 +2865,13 @@
           min-width: 0;
           flex: 1 1 auto;
           overflow: hidden;
-          color: #333;
+          color: #666;
           text-overflow: ellipsis;
           white-space: nowrap;
           text-decoration: none;
+        }
+        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-title:visited {
+          color: #a6a6a6;
         }
         html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-title::before {
           content: "·";
@@ -2854,6 +2891,7 @@
         }
         html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-comments {
           color: #377ee9;
+          font-weight: 700;
         }
         html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-comments::before {
           content: "[";
@@ -3025,8 +3063,15 @@
         </section>
       `;
       this.mountGallerySettings(sidebar);
-      sidebar.querySelector('[data-role="sideConcept"]').href = context.urls.concept;
-      sidebar.querySelector('[data-role="sideWrite"]').href = context.urls.write;
+      const conceptShortcut = sidebar.querySelector('[data-role="sideConcept"]');
+      const writeShortcut = sidebar.querySelector('[data-role="sideWrite"]');
+      if (context.isRealtimeBest) {
+        conceptShortcut?.closest("li")?.remove();
+        writeShortcut?.closest("li")?.remove();
+      } else {
+        conceptShortcut.href = context.urls.concept;
+        writeShortcut.href = context.urls.write;
+      }
       sidebar.querySelector('[data-role="sideMain"]').href = context.urls.list;
       this.mountFavoriteShortcuts(sidebar);
       rightContent.prepend(sidebar);
@@ -3108,7 +3153,7 @@
       const normalizeFavorites = (favorites) => (Array.isArray(favorites) ? favorites : [])
         .flatMap((favorite) => {
           const name = cleanText(favorite?.name);
-          const href = favorite?.href ? galleryListHref(String(favorite.href)) : "";
+          const href = favorite?.href ? galleryBoardHref(String(favorite.href)) : "";
           return name && href ? [{ name, href }] : [];
         })
         .slice(0, 10);
@@ -3124,7 +3169,7 @@
           const key = document.createElement("kbd");
           key.textContent = keys[index];
           const link = document.createElement("a");
-          link.href = galleryListHref(favorite.href);
+          link.href = galleryBoardHref(favorite.href);
           link.dataset.role = `sideFavorite${index + 1}`;
           link.textContent = favorite.name;
           link.title = favorite.name;
@@ -3357,7 +3402,7 @@
         const pageHref = (page) => {
           const target = new URL(currentUrl);
           target.searchParams.set("page", String(page));
-          return galleryListHref(target.href);
+          return galleryBoardHref(target.href);
         };
         setTarget(previousShortcut, currentPage > 1 ? pageHref(currentPage - 1) : "", "이전 페이지");
         setTarget(nextShortcut, Number.isFinite(totalPage) && currentPage >= totalPage ? "" : pageHref(currentPage + 1), "다음 페이지");
@@ -3422,7 +3467,7 @@
         const readPage = async (page) => {
           const target = new URL(listUrl);
           target.searchParams.set("page", String(page));
-          const response = await fetch(galleryListHref(target.href), { credentials: "same-origin" });
+          const response = await fetch(galleryBoardHref(target.href), { credentials: "same-origin" });
           if (!response.ok) return [];
           const doc = new DOMParser().parseFromString(await response.text(), "text/html");
           return [...doc.querySelectorAll("table.gall_list tr.ub-content")].flatMap((row) => {
@@ -4060,17 +4105,6 @@
         html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list .checkbox input[type="checkbox"]:checked + .checkmark {
           border-color: var(--dcfmk-color-nav-light) !important;
           background: var(--dcfmk-color-nav-light) !important;
-        }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list .checkbox input[type="checkbox"]:checked + .checkmark::after {
-          position: absolute;
-          top: 1px;
-          left: 4px;
-          width: 4px;
-          height: 8px;
-          border: solid #fff;
-          border-width: 0 2px 2px 0;
-          content: "";
-          transform: rotate(45deg);
         }
         html.dcfmk-enabled #dcfmk-sidebar [data-role="alarmState"] {
           color: #999;
@@ -6574,14 +6608,16 @@
       `;
       nav.appendChild(home);
       const conceptActive = exceptionMode === "recommend";
-      const conceptTab = this.boardTab(
-        "개념글",
-        pageContext.urls.concept,
-        conceptActive,
-        "dcfmk-board-tab-concept",
-      );
-      conceptTab.setAttribute("aria-label", "개념글 보기");
-      nav.appendChild(conceptTab);
+      if (!pageContext.isRealtimeBest) {
+        const conceptTab = this.boardTab(
+          "개념글",
+          pageContext.urls.concept,
+          conceptActive,
+          "dcfmk-board-tab-concept",
+        );
+        conceptTab.setAttribute("aria-label", "개념글 보기");
+        nav.appendChild(conceptTab);
+      }
 
       const overflowLinks = [];
       for (const source of originalHeads?.querySelectorAll("a") || []) {
@@ -7971,6 +8007,57 @@
           font-size: 13px;
           line-height: 20px;
         }
+        html.dcfmk-enabled.dcfmk-realtime-best table.dcfmk-list-table {
+          table-layout: fixed;
+        }
+        html.dcfmk-enabled.dcfmk-realtime-best table.dcfmk-list-table colgroup col:nth-child(5),
+        html.dcfmk-enabled.dcfmk-realtime-best table.dcfmk-list-table .gall_count {
+          width: 68px;
+          min-width: 68px;
+        }
+        html.dcfmk-enabled.dcfmk-realtime-best table.dcfmk-list-table
+          tbody tr.thum > td {
+          height: 57px;
+          vertical-align: middle;
+        }
+        html.dcfmk-enabled.dcfmk-realtime-best table.dcfmk-list-table
+          tbody tr.thum .gall_tit {
+          padding-top: 3px;
+          padding-bottom: 4px;
+        }
+        html.dcfmk-enabled.dcfmk-realtime-best table.dcfmk-list-table
+          tbody tr.thum .gall_tit > a:not(.reply_numbox) {
+          position: relative;
+          display: inline-flex;
+          box-sizing: border-box;
+          align-items: center;
+          min-height: 50px;
+          padding-left: 80px;
+          vertical-align: middle;
+        }
+        html.dcfmk-enabled.dcfmk-realtime-best table.dcfmk-list-table
+          tbody tr.thum .thumimg {
+          position: absolute !important;
+          top: 0 !important;
+          left: 0 !important;
+          width: 70px !important;
+          height: 50px !important;
+          overflow: hidden;
+          transform: none !important;
+          background: #f2f2f2;
+        }
+        html.dcfmk-enabled.dcfmk-realtime-best table.dcfmk-list-table
+          tbody tr.thum .thumimg > img {
+          position: static !important;
+          display: block;
+          width: 70px !important;
+          height: 50px !important;
+          object-fit: cover;
+        }
+        html.dcfmk-enabled.dcfmk-realtime-best table.dcfmk-list-table
+          tbody tr.thum .reply_numbox {
+          vertical-align: middle;
+        }
         html.dcfmk-enabled table.dcfmk-list-table .gall_writer {
           width: 108px;
           min-width: 94px;
@@ -8302,6 +8389,14 @@
         link.href = `#${targetId}`;
         link.dataset.role = item.role;
         link.setAttribute("aria-label", item.label);
+        link.addEventListener("click", (event) => {
+          event.preventDefault();
+          if (item.role === "top") {
+            window.scrollTo({ top: 0, behavior: "auto" });
+            return;
+          }
+          item.target.scrollIntoView({ behavior: "auto", block: "start" });
+        });
 
         const icon = document.createElement("span");
         icon.className = `dcfmk-quick-nav-icon dcfmk-quick-nav-icon-${item.role}`;
@@ -9326,6 +9421,7 @@
       if (themeEnabled) {
         CustomSettingsController.init();
         AutomatedRequestCoordinator.noteNavigation();
+        syncConfiguredListLinks();
         ShellView.mount(pageContext);
         ListView.mount();
         ArticleView.mount(pageContext);
