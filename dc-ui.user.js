@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         디시인사이드 UI 변경
 // @namespace    https://gall.dcinside.com
-// @version      2.0.0
+// @version      2.0.3
 // @description  갤러리 UI 변경, 즐겨찾기·최근 방문 통합, 단축키, 개념글 알림, 광고 숨김 등
 // @author       rankingbot
 // @license      MIT
@@ -23,7 +23,7 @@
 (function () {
   "use strict";
 
-  const SCRIPT_VERSION = "2.0.0";
+  const SCRIPT_VERSION = "2.0.3";
   const THEME_ENABLED_KEY = "dcfmk:enabled";
   const LIST_SIZE_PREFERENCE_KEY = "dcfmk:list-size-preference";
   const SETTINGS_COLLAPSED_KEY = "dcfmk:settings-collapsed";
@@ -1882,10 +1882,10 @@
           height: 6px;
           border-right: 1px solid currentColor;
           border-bottom: 1px solid currentColor;
-          transform: rotate(45deg) translateY(-2px);
+          transform: translateY(-2px) rotate(45deg);
         }
         html.dcfmk-enabled #dcfmk-gallery-strip.dcfmk-expanded .dcfmk-gallery-strip-expand-icon {
-          transform: rotate(225deg) translateY(-2px);
+          transform: translateY(2px) rotate(225deg);
         }
         html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-viewport::-webkit-scrollbar {
           display: none;
@@ -3311,6 +3311,28 @@
         this.configureDirectionalShortcuts(context, previousShortcut, nextShortcut);
       };
       syncDirectionalShortcuts();
+      if (context.pageType === "list") {
+        for (const shortcut of [previousShortcut, nextShortcut]) {
+          shortcut?.addEventListener("click", (event) => {
+            if (event.defaultPrevented || event.button !== 0
+              || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+            const targetHref = shortcut.getAttribute("href");
+            if (!targetHref) return;
+            const target = new URL(targetHref, location.href);
+            const nativePage = [...document.querySelectorAll(".bottom_paging_box a[href]")]
+              .find((link) => {
+                const candidate = new URL(link.href, location.href);
+                return candidate.origin === target.origin
+                  && candidate.pathname.replace(/\/$/, "") === target.pathname.replace(/\/$/, "")
+                  && candidate.searchParams.get("id") === target.searchParams.get("id")
+                  && (candidate.searchParams.get("page") || "1") === (target.searchParams.get("page") || "1");
+              });
+            if (!nativePage) return;
+            event.preventDefault();
+            nativePage.click();
+          });
+        }
+      }
       if (context.pageType === "view") {
         previousShortcut?.addEventListener("click", (event) => {
           event.preventDefault();
@@ -3326,7 +3348,15 @@
         const target = event.target;
         const isTyping = target instanceof HTMLElement
           && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
-        if (isTyping || event.ctrlKey || event.metaKey || event.shiftKey) return;
+        if (event.defaultPrevented || isTyping || event.ctrlKey || event.metaKey || event.shiftKey) return;
+        const refresherPreviewOpen = [...document.querySelectorAll(".refresher-frame-outer")]
+          .some((frame) => {
+            const style = getComputedStyle(frame);
+            return !frame.classList.contains("fadeOut") && frame.getClientRects().length > 0
+              && style.visibility !== "hidden" && style.pointerEvents !== "none"
+              && (frame.classList.contains("fadeIn") || Number.parseFloat(style.opacity) > 0);
+          });
+        if (refresherPreviewOpen) return;
 
         const key = event.key.toLowerCase();
         if (event.altKey) {
@@ -6015,6 +6045,7 @@
       this.decorateControls();
       this.syncSubjectCells();
       this.injectStyle();
+      this.watchTable(listRoot);
       return { listRoot, listTable };
     },
 
@@ -6050,20 +6081,23 @@
       const numberHeader = listTable.querySelector("thead .gall_num") || headerByText("번호");
       const subjectHeader = listTable.querySelector("thead .gall_subject") || headerByText("말머리");
       const hasSubjectColumn = rows.some((row) => row.querySelector(".gall_subject"));
+      listTable.classList.toggle("dcfmk-has-subject-column", hasSubjectColumn);
 
       if (numberHeader) {
-        numberHeader.textContent = hasSubjectColumn ? "번호" : "말머리";
+        const label = hasSubjectColumn ? "번호" : "말머리";
+        if (cleanText(numberHeader.textContent) !== label) numberHeader.textContent = label;
         numberHeader.classList.toggle("dcfmk-hidden-number", hasSubjectColumn);
         numberHeader.classList.toggle("dcfmk-tab-cell", !hasSubjectColumn);
       }
       if (subjectHeader) {
-        subjectHeader.textContent = "말머리";
+        if (cleanText(subjectHeader.textContent) !== "말머리") subjectHeader.textContent = "말머리";
         subjectHeader.classList.add("dcfmk-tab-cell");
       }
-      if (hasSubjectColumn) {
+      if (hasSubjectColumn && listTable.dataset.dcfmkNumberColumnRemoved !== "true") {
         const numberColumnIndex = headers.indexOf(numberHeader);
         const numberColumn = listTable.querySelectorAll("colgroup col")[numberColumnIndex];
         numberColumn?.remove();
+        listTable.dataset.dcfmkNumberColumnRemoved = "true";
       }
 
       for (const row of rows) {
@@ -6080,7 +6114,7 @@
           }
         } else if (numberCell) {
           numberCell.classList.add("dcfmk-tab-cell");
-          numberCell.textContent = tabLabel;
+          if (cleanText(numberCell.textContent) !== tabLabel) numberCell.textContent = tabLabel;
         }
       }
 
@@ -6095,6 +6129,45 @@
         const header = listTable.querySelector(`thead ${selector}`) || headerByText(originalLabel);
         if (header) header.textContent = label;
       }
+    },
+
+    watchTable(listRoot) {
+      if (listRoot.__dcfmkListTableObserver || typeof MutationObserver !== "function") return;
+      let refreshQueued = false;
+      let observer = null;
+      const refresh = () => {
+        refreshQueued = false;
+        const listTable = DcAdapter.listTable(listRoot);
+        if (!listTable) return;
+        listTable.classList.add("dcfmk-list-table");
+        this.decorateRows(listTable);
+        this.decorateTable(listTable);
+        this.syncSubjectCells();
+        // Refresher changes history and replaces tbody without reloading.
+        // Its preview can temporarily change a list URL to a view URL.
+        if (PageContext.fromLocation()?.pageType === pageContext.pageType) {
+          ShellView.configureDirectionalShortcuts(pageContext,
+            document.querySelector('#dcfmk-sidebar [data-role="sidePrevious"]'),
+            document.querySelector('#dcfmk-sidebar [data-role="sideNext"]'));
+        }
+        observer?.takeRecords();
+      };
+      const queueRefresh = () => {
+        if (refreshQueued) return;
+        refreshQueued = true;
+        queueMicrotask(refresh);
+      };
+      observer = new MutationObserver((records) => {
+        const relevant = records.some((record) => {
+          const target = record.target instanceof Element ? record.target : record.target.parentElement;
+          if (target?.closest("table.gall_list")) return true;
+          return Array.from(record.addedNodes).some((node) => node instanceof Element
+            && (node.matches("table.gall_list") || Boolean(node.querySelector("table.gall_list"))));
+        });
+        if (relevant) queueRefresh();
+      });
+      observer.observe(listRoot, { childList: true, subtree: true });
+      listRoot.__dcfmkListTableObserver = observer;
     },
 
     tabLabel(row, numberText, subjectCell) {
@@ -6732,17 +6805,41 @@
 
     linkSubjectCells(targets) {
       for (const cell of document.querySelectorAll("table.dcfmk-list-table tbody tr.ub-content .dcfmk-tab-cell")) {
-        if (cell.querySelector(":scope > .dcfmk-subject-filter-link")) continue;
+        const existing = cell.querySelector(":scope > .dcfmk-subject-filter-link");
+        if (existing?.shadowRoot) continue;
         const label = cleanText(cell.textContent);
         const targetHref = targets.get(label);
         if (!targetHref) continue;
 
+        // Refresher reads a row's first light-DOM anchor as its post URL.
+        // Keep our generated filter link separate while retaining the native
+        // cell content through a slot and a real, keyboard-accessible anchor.
+        const host = existing || document.createElement("span");
+        host.className = "dcfmk-subject-filter-link";
+        const shadow = host.attachShadow({ mode: "open" });
+        const style = document.createElement("style");
+        style.textContent = `
+          a { display: block; overflow: hidden; color: inherit; font: inherit;
+            text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+          a:hover, a:focus-visible { color: var(--dcfmk-color-link); text-decoration: underline; }
+          a:focus-visible { outline: 2px solid var(--dcfmk-color-accent); outline-offset: -2px; }
+        `;
         const link = document.createElement("a");
-        link.className = "dcfmk-subject-filter-link";
         link.href = targetHref;
         link.setAttribute("aria-label", `${label} 말머리 글만 보기`);
-        while (cell.firstChild) link.appendChild(cell.firstChild);
-        cell.appendChild(link);
+        link.appendChild(document.createElement("slot"));
+        for (const type of ["click", "auxclick", "contextmenu"]) {
+          link.addEventListener(type, (event) => {
+            link.href = galleryBoardHref(link.href);
+            // A filter click must not open the row's Refresher preview.
+            event.stopPropagation();
+          });
+        }
+        shadow.append(style, link);
+        if (!existing) {
+          while (cell.firstChild) host.appendChild(cell.firstChild);
+          cell.appendChild(host);
+        }
       }
     },
 
@@ -7087,11 +7184,14 @@
           font-weight: 400;
         }
         html.dcfmk-enabled table.dcfmk-list-table .gall_writer {
-          overflow: visible;
+          overflow: hidden;
           padding: 0 6px;
           text-align: left;
           text-overflow: ellipsis;
           white-space: nowrap;
+        }
+        html.dcfmk-enabled table.dcfmk-list-table .gall_writer:has(.user_data.add) {
+          overflow: visible;
         }
         html.dcfmk-enabled table.dcfmk-list-table tr.dcfmk-row-notice {
           background: #fafafa;
@@ -7971,7 +8071,8 @@
           font-size: 11px;
           line-height: 20px;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .dcfmk-hidden-number {
+        html.dcfmk-enabled table.dcfmk-list-table .dcfmk-hidden-number,
+        html.dcfmk-enabled table.dcfmk-list-table.dcfmk-has-subject-column .gall_num {
           display: none !important;
         }
         html.dcfmk-enabled table.dcfmk-list-table .dcfmk-tab-cell {
@@ -8125,6 +8226,8 @@
           width: 105px;
           height: 28px;
           margin-left: 4px;
+          border: 0;
+          background: transparent;
         }
         html.dcfmk-enabled .dcfmk-fm-bottom-menu .select_area {
           position: relative;
@@ -8256,6 +8359,10 @@
           white-space: normal;
           cursor: pointer;
           text-decoration: none;
+        }
+        html.dcfmk-enabled .dcfmk-fm-bottom-button,
+        html.dcfmk-enabled .list_array_option .dcfmk-top-write-button {
+          text-shadow: none;
         }
         html.dcfmk-enabled .dcfmk-fm-bottom-actions > .dcfmk-fm-bottom-button,
         html.dcfmk-enabled .list_array_option .dcfmk-top-write-button {
@@ -8725,6 +8832,15 @@
           font-size: 11px;
         }
         html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .gall_comment a {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          box-sizing: border-box;
+          min-width: 52px;
+          height: 22px;
+          padding: 0 10px 2px;
+          line-height: normal;
+          vertical-align: middle;
           color: var(--dcfmk-color-link);
           text-decoration: none;
         }
@@ -9349,6 +9465,7 @@
           line-height: 24px !important;
           letter-spacing: normal;
           white-space: nowrap;
+          text-shadow: none;
         }
         html.dcfmk-enabled .view_bottom_btnbox > .fr .write {
           font-weight: 400 !important;
@@ -9376,13 +9493,45 @@
           border-top: 0;
         }
         html.dcfmk-enabled .dcfmk-comments .comment_count {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 4px 12px;
           min-height: 38px;
+          height: auto;
           padding: 8px 12px;
           border: 1px solid #ddd !important;
           border-radius: 4px;
           background: linear-gradient(to bottom, #fff 0, #f9f9f9 100%);
           color: #555;
           font-size: 13px;
+          line-height: 20px;
+        }
+        html.dcfmk-enabled .dcfmk-comments .comment_count::after {
+          display: none;
+        }
+        html.dcfmk-enabled .dcfmk-comments .comment_count > .num_box,
+        html.dcfmk-enabled .dcfmk-comments .comment_count > .fr {
+          float: none;
+          width: auto;
+          line-height: 20px;
+        }
+        html.dcfmk-enabled .dcfmk-comments .comment_count .comment_sort {
+          display: inline-flex;
+          align-items: center;
+          vertical-align: middle;
+          line-height: 20px;
+        }
+        html.dcfmk-enabled .dcfmk-comments .comment_sort .radiobox {
+          display: inline-flex;
+          align-items: center;
+          height: 20px;
+          line-height: 20px;
+        }
+        html.dcfmk-enabled .dcfmk-comments .comment_sort .checkmark {
+          top: 50%;
+          transform: translateY(-50%);
         }
         html.dcfmk-enabled .dcfmk-comments .comment_box {
           border-top: 0 !important;
