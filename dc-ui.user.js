@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         디시인사이드 UI 변경
 // @namespace    https://gall.dcinside.com
-// @version      2.0.4
-// @description  갤러리 UI 변경, 즐겨찾기·최근 방문 통합, 단축키, 개념글 알림, 광고 숨김 등
+// @version      2.0.5
+// @description  갤러리 UI 변경, 즐겨찾기·최근 방문 갤러리 UI개선, 단축키, 대문 보이기/숨기기, 개념글 알림, 광고 숨김 등
 // @author       rankingbot
 // @license      MIT
 // @homepageURL  https://sleazyfork.org/ko/scripts/581303
@@ -23,7 +23,7 @@
 (function () {
   "use strict";
 
-  const SCRIPT_VERSION = "2.0.4";
+  const SCRIPT_VERSION = "2.0.5";
   const THEME_ENABLED_KEY = "dcfmk:enabled";
   const LIST_SIZE_PREFERENCE_KEY = "dcfmk:list-size-preference";
   const SETTINGS_COLLAPSED_KEY = "dcfmk:settings-collapsed";
@@ -130,6 +130,7 @@
       } catch (_error) {
         return;
       }
+      if (originalUrl.origin !== location.origin || !PAGE_RE.test(originalUrl.pathname)) return;
       const normalizedHref = galleryBoardHref(originalUrl.href);
       if (normalizedHref === originalUrl.href) return;
 
