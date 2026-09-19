@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         디시인사이드 UI 변경
 // @namespace    https://gall.dcinside.com
-// @version      2.0.5
+// @version      2.0.6
 // @description  갤러리 UI 변경, 즐겨찾기·최근 방문 갤러리 UI개선, 단축키, 대문 보이기/숨기기, 개념글 알림, 광고 숨김 등
 // @author       rankingbot
 // @license      MIT
@@ -13,6 +13,7 @@
 // @resource     dcfmk-fontawesome https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.6.0/fonts/fontawesome-webfont.woff2#sha256=c1732796c9dfafddff16db9660e67a879d723f376b0160cccad730c6c414eed3
 // @run-at       document-start
 // @grant        GM_getValue
+// @grant        GM_listValues
 // @grant        GM_getResourceURL
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
@@ -23,13 +24,14 @@
 (function () {
   "use strict";
 
-  const SCRIPT_VERSION = "2.0.5";
+  const SCRIPT_VERSION = "2.0.6";
   const THEME_ENABLED_KEY = "dcfmk:enabled";
   const LIST_SIZE_PREFERENCE_KEY = "dcfmk:list-size-preference";
   const SETTINGS_COLLAPSED_KEY = "dcfmk:settings-collapsed";
   const GALLERY_COVER_HIDDEN_KEY = "dcfmk:gallery-cover-hidden";
   const USER_IDENTIFIER_VISIBLE_KEY = "dcfmk:user-identifier-visible";
   const CONCEPT_ALARM_ENABLED_KEY = "dcfmk:concept-alarm-enabled";
+  const NATIVE_ALARM_INSTALL_KEY = "dcfmk:native-alarm-install";
   const FAVORITE_SHORTCUT_CACHE_KEY = "dcfmk:favorite-shortcuts-cache";
   const FAVORITE_SHORTCUT_CACHE_READY_KEY = "dcfmk:favorite-shortcuts-cache-ready";
   const UI_CONFIG = Object.freeze({
@@ -193,6 +195,7 @@
   const initialThemeEnabled = GM_getValue(THEME_ENABLED_KEY, true) !== false;
   if (window.__dcfmkInitialized) return;
   window.__dcfmkInitialized = true;
+  initializeNativeAlarmInstall();
   BoardNavigationController.mount();
 
   const earlyShield = initialThemeEnabled ? document.createElement("style") : null;
@@ -325,6 +328,95 @@
         );
       }
       return execute();
+    },
+  });
+
+  function initializeNativeAlarmInstall() {
+    if (GM_getValue(NATIVE_ALARM_INSTALL_KEY, null) !== null) return;
+    // Older releases have no install marker. Any existing userscript data means
+    // an upgrade: never infer a new installation from the missing marker alone.
+    const fresh = typeof GM_listValues === "function" && GM_listValues().length === 0;
+    GM_setValue(NATIVE_ALARM_INSTALL_KEY, fresh ? "pending" : "preserved");
+  }
+
+  const NativeAlarmInstall = Object.freeze({
+    async apply() {
+      if (GM_getValue(NATIVE_ALARM_INSTALL_KEY, "preserved") !== "pending") return;
+      const panel = document.getElementById("alarmConf");
+      const rtbest = panel?.querySelector('.setting_onoff > button[data-id="rtbest"]');
+      if (!rtbest) return;
+      const preserveUserChoice = () => {
+        if (GM_getValue(NATIVE_ALARM_INSTALL_KEY, "") === "pending") {
+          GM_setValue(NATIVE_ALARM_INSTALL_KEY, "preserved");
+        }
+      };
+      panel.addEventListener("click", preserveUserChoice, true);
+      try {
+        await AutomatedRequestCoordinator.run(async (signal) => {
+          // Recheck after the shared request lock and delay, including other tabs.
+          if (GM_getValue(NATIVE_ALARM_INSTALL_KEY, "") !== "pending" || !rtbest.isConnected) return;
+          if (!rtbest.classList.contains("on")) {
+            GM_setValue(NATIVE_ALARM_INSTALL_KEY, "already-off");
+            return;
+          }
+          const page = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
+          if (typeof page.jQuery?.ajax !== "function" || typeof page.get_cookie !== "function") return;
+          const controls = [...panel.querySelectorAll(".setting_onoff > button")];
+          const conf = Object.fromEntries(controls.map(node => [node.dataset.id, Number(node.classList.contains("on"))]));
+          if (!["popup", "reply", "reReply", "pum"].every(key => key in conf)) return;
+          conf.rtbest = 0;
+          const data = { ci_t: page.get_cookie("ci_c"), conf };
+          if (!data.ci_t) return;
+          const cell = typeof page.rtb_get === "function" ? page.rtb_get("rtb_cell") : null;
+          if (cell) {
+            data.rtb_cell = cell;
+            data.rtb_gt = page._GALLERY_TYPE_ || "";
+          }
+          // Persist before sending: an interrupted/failed save must not be
+          // retried on every reload or overwrite a later manual preference.
+          GM_setValue(NATIVE_ALARM_INSTALL_KEY, "saving");
+          const buttons = [...panel.querySelectorAll("button")].map(node => ({ node, disabled: node.disabled }));
+          buttons.forEach(({ node }) => { node.disabled = true; });
+          try {
+            await new Promise((resolveSave, rejectSave) => {
+              const request = page.jQuery.ajax({
+                url: "//gall.dcinside.com/ajax/alarm_ajax/conf_update?jsoncallback=?",
+                type: "GET", cache: false, dataType: "json", data, timeout: 15000,
+                success: (result) => {
+                  try {
+                    AutomatedRequestCoordinator.requireNonEmpty(result);
+                    if (result !== "0000") throw new Error("실베 알림 설정 저장 실패");
+                    resolveSave();
+                  } catch (error) { rejectSave(error); }
+                },
+                error: (xhr, status) => {
+                  try {
+                    if (xhr.status > 0) AutomatedRequestCoordinator.requireNonEmpty(xhr.responseText);
+                    throw new Error(`실베 알림 설정 저장 실패: ${status}`);
+                  } catch (error) { rejectSave(error); }
+                },
+              });
+              const abort = () => request.abort();
+              signal.addEventListener("abort", abort, { once: true });
+              request.always(() => signal.removeEventListener("abort", abort));
+            });
+            GM_setValue(NATIVE_ALARM_INSTALL_KEY, "saved");
+            rtbest.classList.remove("on");
+            const label = rtbest.querySelector(".blind");
+            if (label) label.textContent = "off";
+            if ("rtb_conf_prev" in page) page.rtb_conf_prev = 0;
+          } catch (error) {
+            GM_setValue(NATIVE_ALARM_INSTALL_KEY, "failed");
+            throw error;
+          } finally {
+            buttons.forEach(({ node, disabled }) => { node.disabled = disabled; });
+          }
+        });
+      } catch (error) {
+        if (error.name !== "AbortError") console.warn("[DC UI] 실베 알림 초기 저장을 완료하지 못했습니다. 내 알림 > 설정에서 확인해 주세요.", error);
+      } finally {
+        panel.removeEventListener("click", preserveUserChoice, true);
+      }
     },
   });
 
@@ -1210,51 +1302,131 @@
         }
         html.dcfmk-ready:has(#css-darkmode) {
           color-scheme: dark;
-          --dcfmk-color-text: #d8d8d8;
-          --dcfmk-color-text-strong: #eee;
-          --dcfmk-color-text-soft: #c8c8c8;
-          --dcfmk-color-muted: #aaa;
-          --dcfmk-color-faint: #858585;
-          --dcfmk-color-featured-title: #aaa;
-          --dcfmk-color-featured-visited: #858585;
+          --dcfmk-color-text: #ccc;
+          --dcfmk-color-text-strong: #ddd;
+          --dcfmk-color-text-soft: #bbb;
+          --dcfmk-color-muted: #999;
+          --dcfmk-color-faint: #888;
+          --dcfmk-color-featured-title: #999;
+          --dcfmk-color-featured-visited: #555;
           --dcfmk-color-on-accent: #fff;
-          --dcfmk-color-link: #8ea1ff;
-          --dcfmk-color-link-secondary: #8eaeff;
-          --dcfmk-color-link-bright: #82b3ff;
-          --dcfmk-color-link-muted: #7fa6cc;
+          --dcfmk-color-link: #afafaf;
+          --dcfmk-color-link-secondary: #98c7e4;
+          --dcfmk-color-link-bright: #377ee9;
+          --dcfmk-color-link-muted: #999;
           --dcfmk-color-accent: #7d8fe5;
           --dcfmk-color-nav: #8294ee;
           --dcfmk-color-nav-light: #4e5fae;
-          --dcfmk-color-surface: #151515;
-          --dcfmk-color-subtle: #1b1b1b;
-          --dcfmk-color-surface-muted: #242424;
-          --dcfmk-color-surface-strong: #2b2b2b;
-          --dcfmk-color-surface-hover: #202738;
-          --dcfmk-color-surface-selected: #252b40;
-          --dcfmk-color-surface-notice: #1d1d1d;
-          --dcfmk-color-surface-survey: #1d2230;
-          --dcfmk-color-surface-ad: #242116;
-          --dcfmk-color-border: #393939;
-          --dcfmk-color-border-soft: #2d2d2d;
-          --dcfmk-color-border-strong: #4a4a4a;
+          --dcfmk-color-surface: #121212;
+          --dcfmk-color-subtle: #191919;
+          --dcfmk-color-surface-muted: #222;
+          --dcfmk-color-surface-strong: #333;
+          --dcfmk-color-surface-hover: #232323;
+          --dcfmk-color-surface-selected: #232323;
+          --dcfmk-color-surface-notice: #232323;
+          --dcfmk-color-surface-survey: #222;
+          --dcfmk-color-surface-ad: #222;
+          --dcfmk-color-border: #444;
+          --dcfmk-color-border-soft: #222;
+          --dcfmk-color-border-strong: #555;
           --dcfmk-color-border-control: #666;
           --dcfmk-color-border-accent: #4e5fae;
-          --dcfmk-color-icon: #aab4c6;
-          --dcfmk-color-control-hover: #3a3a3a;
+          --dcfmk-color-icon: #aaa;
+          --dcfmk-color-control-hover: #333;
           --dcfmk-color-control-active: #333;
           --dcfmk-color-toggle-track: #555;
-          --dcfmk-color-control-gradient-top: #303030;
-          --dcfmk-color-control-gradient-bottom: #252525;
-          --dcfmk-color-control-gradient-soft-bottom: #202020;
-          --dcfmk-color-control-highlight: #444;
-          --dcfmk-color-selection: #334063;
-          --dcfmk-color-selection-text: #fff;
-          --dcfmk-control-border: #50556a;
-          --dcfmk-control-border-hover: #737b9d;
-          --dcfmk-control-border-focus: #7d8fe5;
-          --dcfmk-control-addon-border: #41465a;
-          --dcfmk-control-addon-surface: #242735;
+          --dcfmk-color-control-gradient-top: #222;
+          --dcfmk-color-control-gradient-bottom: #191919;
+          --dcfmk-color-control-gradient-soft-bottom: #111;
+          --dcfmk-color-control-highlight: #191919;
+          --dcfmk-color-selection: #333;
+          --dcfmk-color-selection-text: #ddd;
+          --dcfmk-control-border: #444;
+          --dcfmk-control-border-hover: #666;
+          --dcfmk-control-border-focus: #aaa;
+          --dcfmk-control-addon-border: #444;
+          --dcfmk-control-addon-surface: #222;
           --dcfmk-control-shadow: 0 1px 1px rgb(0 0 0 / 28%);
+        }
+        /* FM Korea /lol night_mode, measured 2026-09-19. Keep DC branding
+           and native dark-mode activation; apply the neutral surface palette. */
+        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-shell .dcfmk-nav-bar nav {
+          background: #333;
+          border-color: #444;
+        }
+        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-shell .dcfmk-nav-bar a {
+          color: #ddd;
+          text-shadow: none;
+        }
+        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-shell .dcfmk-nav-bar a:is(:hover, :focus-visible, .dcfmk-active) {
+          color: #cece34;
+          background: #363636;
+        }
+        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-gallery-strip .dcfmk-gallery-strip-inner {
+          background: #2b2b2b;
+        }
+        html.dcfmk-enabled:has(#css-darkmode) table.dcfmk-list-table thead th {
+          background: #121212;
+          border-color: #3c3c3c;
+          box-shadow: inset 0 -1px 0 #191919;
+        }
+        html.dcfmk-enabled:has(#css-darkmode) table.dcfmk-list-table .gall_tit > a:not(.reply_numbox) {
+          color: #afafaf;
+        }
+        html.dcfmk-enabled:has(#css-darkmode) table.dcfmk-list-table .gall_tit > a:not(.reply_numbox):visited {
+          color: #666;
+        }
+        html.dcfmk-enabled:has(#css-darkmode) .dcfmk-article-body :is(.writing_view_box, .write_div),
+        html.dcfmk-enabled:has(#css-darkmode) .dcfmk-comments .usertxt {
+          color: #bbb;
+        }
+        html.dcfmk-enabled:has(#css-darkmode) .dcfmk-article-body :is(.writing_view_box, .write_div) a {
+          color: #98c7e4;
+        }
+        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-shell :is(#alarmList, #alarmConf),
+        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-shell :is(#alarmList, #alarmConf) > .pop_content {
+          background: var(--dcfmk-color-surface);
+          border-color: var(--dcfmk-color-border);
+          color: var(--dcfmk-color-text);
+        }
+        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-shell :is(#alarmList, #alarmConf) .pop_head {
+          background: var(--dcfmk-color-surface-muted);
+          border-color: var(--dcfmk-color-border);
+        }
+        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-shell :is(#alarmList, #alarmConf) :is(h3, .notice_txt, .btn_noti_alldel, .btn_noti_setting) {
+          color: var(--dcfmk-color-text-soft);
+        }
+        html.dcfmk-enabled:has(#css-darkmode) :is(#dcfmk-sidebar .setting_list, #dcfmk-settings-modal) input[type="checkbox"] {
+          accent-color: #888;
+        }
+        html.dcfmk-enabled:has(#css-darkmode) :is(#dcfmk-sidebar .setting_list, #dcfmk-settings-modal) .checkbox .checkmark {
+          background: #121212 !important;
+          border-color: #666 !important;
+        }
+        html.dcfmk-enabled:has(#css-darkmode) :is(#dcfmk-sidebar .setting_list, #dcfmk-settings-modal) .checkbox input[type="checkbox"]:checked + .checkmark {
+          background: #333 !important;
+          border-color: #888 !important;
+        }
+        html.dcfmk-enabled:has(#css-darkmode) :is(#dcfmk-sidebar .setting_list, #dcfmk-settings-modal) .checkbox input[type="checkbox"]:checked + .checkmark::after {
+          position: absolute;
+          display: block;
+          top: 50%;
+          left: 50%;
+          width: 3px;
+          height: 6px;
+          background: none !important;
+          border: solid #ccc !important;
+          border-width: 0 2px 2px 0 !important;
+          box-shadow: none;
+          transform: translate(-50%, -65%) rotate(45deg);
+          content: "";
+        }
+        html.dcfmk-enabled:has(#css-darkmode) :is(#dcfmk-sidebar .setting_list, #dcfmk-settings-modal) .checkbox input[type="checkbox"]:not(:checked) + .checkmark::after {
+          display: none;
+        }
+        html.dcfmk-enabled:has(#css-darkmode) :is(#dcfmk-sidebar .setting_list, #dcfmk-settings-modal) .checkbox input[type="checkbox"]:focus-visible + .checkmark {
+          outline: 2px solid #aaa;
+          outline-offset: 2px;
         }
         html.dcfmk-enabled body,
         html.dcfmk-enabled button,
@@ -1446,6 +1618,7 @@
     writerObserver: null,
 
     init() {
+      this.setFeaturedHidden(this.isFeaturedHidden(), false);
       this.setGalleryCoverHidden(GM_getValue(GALLERY_COVER_HIDDEN_KEY, false) === true, false);
       this.setUserIdentifierVisible(GM_getValue(USER_IDENTIFIER_VISIBLE_KEY, false) === true, false);
     },
@@ -1455,6 +1628,12 @@
       if (!list || list.querySelector(".dcfmk-custom-setting")) return;
 
       const controls = [
+        {
+          id: "dcfmk-hide-featured",
+          label: "실베·최신 개념글 숨김",
+          checked: this.isFeaturedHidden(),
+          change: (checked) => this.setFeaturedHidden(checked),
+        },
         {
           id: "dcfmk-hide-gallery-cover",
           label: "대문 이미지 숨김",
@@ -1492,6 +1671,21 @@
         fragment.appendChild(item);
       }
       list.prepend(fragment);
+      this.setFeaturedHidden(this.isFeaturedHidden(), false);
+    },
+
+    isFeaturedHidden() {
+      return GM_getValue("dcfmk:featured-hidden",
+        GM_getValue("dcfmk:featured-realtime-collapsed", false) === true
+          && GM_getValue("dcfmk:featured-concept-collapsed", false) === true) === true;
+    },
+
+    setFeaturedHidden(hidden, persist = true) {
+      const value = Boolean(hidden);
+      if (persist) GM_setValue("dcfmk:featured-hidden", value);
+      document.documentElement.classList.toggle("dcfmk-featured-hidden", value);
+      const input = document.getElementById("dcfmk-hide-featured");
+      if (input) input.checked = value;
     },
 
     setGalleryCoverHidden(hidden, persist = true) {
@@ -2932,6 +3126,9 @@
           font-size: 16px;
           line-height: 26px;
         }
+        html.dcfmk-enabled.dcfmk-featured-hidden #dcfmk-featured-posts {
+          display: none !important;
+        }
         html.dcfmk-enabled #dcfmk-featured-posts h3 a {
           color: var(--dcfmk-color-nav);
           font-weight: 700;
@@ -3058,14 +3255,6 @@
           <nav class="dcfmk-inner" aria-label="갤러리 메뉴">
             <div class="dcfmk-gallery-menu">
               <a class="dcfmk-active" data-role="galleryHome">갤러리</a>
-              <div class="dcfmk-category-bar" aria-label="갤러리 분류">
-                <a data-role="categoryGame">게임</a>
-                <a data-role="categoryEnter">연예/방송</a>
-                <a data-role="categorySports">스포츠</a>
-                <a data-role="categoryEdu">교육/금융/IT</a>
-                <a data-role="categoryTravel">여행/음식/생물</a>
-                <a data-role="categoryHobby">취미/생활</a>
-              </div>
             </div>
             <a data-role="minorHome">마이너갤</a>
             <a data-role="miniHome">미니갤</a>
@@ -3091,12 +3280,6 @@
         person: "personHome",
       }[context.galleryType] || "galleryHome";
       shell.querySelector(`[data-role="${activeNavRole}"]`)?.classList.add("dcfmk-active");
-      shell.querySelector('[data-role="categoryGame"]').href = "https://game.dcinside.com/";
-      shell.querySelector('[data-role="categoryEnter"]').href = "https://enter.dcinside.com/";
-      shell.querySelector('[data-role="categorySports"]').href = "https://sports.dcinside.com/";
-      shell.querySelector('[data-role="categoryEdu"]').href = "https://edu.dcinside.com/";
-      shell.querySelector('[data-role="categoryTravel"]').href = "https://travel.dcinside.com/";
-      shell.querySelector('[data-role="categoryHobby"]').href = "https://hobby.dcinside.com/";
 
       const originalLogo = DcAdapter.logo();
       if (originalLogo) {
@@ -3347,12 +3530,13 @@
     mountNativeAlarm(shell, loginLink) {
       const nativeLink = DcAdapter.nativeAlarmLink();
       const nativePanel = DcAdapter.nativeAlarmPanel();
+      const nativeSettings = document.getElementById("alarmConf");
       const mount = shell.querySelector('[data-role="nativeAlarmMount"]');
       const button = shell.querySelector('[data-role="nativeAlarm"]');
       const indicator = button.querySelector("em");
 
-      nativePanel?.querySelector(".btn_noti_setting")?.remove();
       if (nativePanel && mount) mount.appendChild(nativePanel);
+      if (nativeSettings && mount) mount.appendChild(nativeSettings);
 
       const syncUnread = () => {
         indicator.classList.toggle("dcfmk-has-native-alarm", Boolean(nativeLink?.querySelector(".icon_noti.new")));
@@ -3364,6 +3548,7 @@
       }
 
       button.addEventListener("click", () => {
+        if (nativeSettings) nativeSettings.style.display = "none";
         if (nativeLink) {
           const wasVisible = nativePanel && getComputedStyle(nativePanel).display !== "none";
           nativeLink.click();
@@ -3812,7 +3997,8 @@
         html.dcfmk-enabled #dcfmk-shell [data-role="nativeAlarm"] em.dcfmk-has-native-alarm {
           display: inline-block;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-native-alarm-mount #alarmList {
+        html.dcfmk-enabled #dcfmk-shell .dcfmk-native-alarm-mount #alarmList,
+        html.dcfmk-enabled #dcfmk-shell .dcfmk-native-alarm-mount #alarmConf {
           position: absolute !important;
           z-index: 10030 !important;
           top: calc(100% + 4px) !important;
@@ -3822,8 +4008,27 @@
           margin: 0 !important;
           text-align: left;
         }
-        html.dcfmk-enabled #dcfmk-shell #alarmList .btn_noti_setting {
-          display: none !important;
+        html.dcfmk-enabled #dcfmk-shell #alarmConf .notice_setting {
+          width: auto;
+          color: var(--dcfmk-color-text);
+          background: var(--dcfmk-color-surface);
+        }
+        html.dcfmk-enabled #dcfmk-shell #alarmConf .inner {
+          padding: 12px 14px;
+        }
+        html.dcfmk-enabled #dcfmk-shell #alarmConf .set_element_box {
+          padding-right: 65px;
+          color: inherit;
+        }
+        html.dcfmk-enabled #dcfmk-shell #alarmConf .inner_txt {
+          font-size: 12px;
+          white-space: nowrap;
+        }
+        html.dcfmk-enabled #dcfmk-shell #alarmConf .setting_onoff {
+          right: 0;
+        }
+        html.dcfmk-enabled #dcfmk-shell #alarmConf .btn_box {
+          padding-bottom: 14px;
         }
         html.dcfmk-enabled #dcfmk-shell .dcfmk-utility nav > *:hover {
           color: var(--dcfmk-color-link);
@@ -4010,48 +4215,6 @@
           background: transparent;
           color: #ffed44;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-category-bar {
-          position: absolute;
-          z-index: 10020;
-          top: 44px;
-          left: 0;
-          display: flex;
-          width: max-content;
-          height: 35px;
-          visibility: hidden;
-          border: 1px solid var(--dcfmk-color-border-accent);
-          border-top: 0;
-          background: var(--dcfmk-color-surface);
-          box-shadow: 0 4px 10px rgba(31, 39, 90, 0.22);
-          opacity: 0;
-          transform: translateY(-3px);
-          transition: opacity 100ms ease, transform 100ms ease, visibility 100ms;
-        }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-gallery-menu:hover .dcfmk-category-bar,
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-gallery-menu:focus-within .dcfmk-category-bar {
-          display: flex;
-          visibility: visible;
-          opacity: 1;
-          transform: translateY(0);
-        }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-category-bar a {
-          height: 34px;
-          margin-left: 0;
-          padding: 8px 18px 0;
-          border-right: 1px solid var(--dcfmk-color-border-soft);
-          color: var(--dcfmk-color-text-soft);
-          font-size: 12px;
-          font-weight: 700;
-          line-height: 18px;
-          text-shadow: none;
-        }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-category-bar a:first-child {
-          border-left: 1px solid var(--dcfmk-color-border-soft);
-        }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-category-bar a:hover {
-          background: var(--dcfmk-color-surface-muted);
-          color: var(--dcfmk-color-link);
-        }
         html.dcfmk-enabled #container > .left_content {
           float: left;
           width: var(--dcfmk-content-width) !important;
@@ -4225,7 +4388,7 @@
         html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list li:last-child {
           border-bottom: 0;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list li.dcfmk-custom-setting:nth-child(3) {
+        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list li.dcfmk-custom-setting:has(#dcfmk-enable-concept-alarm) {
           border-bottom-color: var(--dcfmk-color-border-strong);
         }
         html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list li > button,
@@ -4437,7 +4600,7 @@
       document.body.appendChild(overlay);
 
       card.addEventListener("pointerdown", (event) => {
-        const button = event.target.closest(".setting_list li button");
+        const button = event.target.closest(".setting_list li:not(.dcfmk-custom-setting) button");
         if (!button) return;
         const selector = this.selectorFor(this.labelForButton(button));
         const visibleKnownPanel = selector
@@ -4451,7 +4614,7 @@
       }, true);
 
       card.addEventListener("click", (event) => {
-        const button = event.target.closest(".setting_list li button");
+        const button = event.target.closest(".setting_list li:not(.dcfmk-custom-setting) button");
         if (!button) return;
         const item = button.closest("li");
         const label = this.labelForButton(button);
@@ -4516,7 +4679,7 @@
       }, true);
 
       card.addEventListener("click", (event) => {
-        const button = event.target.closest(".setting_list li button");
+        const button = event.target.closest(".setting_list li:not(.dcfmk-custom-setting) button");
         if (!button) return;
         this.arm(this.labelForButton(button), button);
       });
@@ -4727,7 +4890,7 @@
 
     popupCandidates() {
       return [...document.querySelectorAll(".pop_wrap")].filter((node) => {
-        if (node.closest("#dcfmk-sidebar, #dcfmk-settings-modal, #alarmList")) return false;
+        if (node.closest("#dcfmk-sidebar, #dcfmk-settings-modal, #alarmList, #alarmConf")) return false;
         if (["relation_popup", "visit_history_lyr", "my_favorite"].includes(node.id)) return false;
         return this.isVisible(node);
       });
@@ -7352,6 +7515,32 @@
           text-overflow: ellipsis;
           white-space: nowrap;
         }
+        html.dcfmk-enabled table.dcfmk-list-table .gall_writer[user_name="운영자"] {
+          text-align: center;
+        }
+        html.dcfmk-enabled table.dcfmk-list-table .gall_writer .addbox:has(> .dcfmk-user-identifier) {
+          display: inline-flex;
+          align-items: center;
+          width: 100%;
+          min-width: 0;
+          vertical-align: middle;
+        }
+        html.dcfmk-enabled table.dcfmk-list-table .gall_writer .addbox:has(> .dcfmk-user-identifier) > .nickname,
+        html.dcfmk-enabled table.dcfmk-list-table .gall_writer .addbox:has(> .dcfmk-user-identifier) > .writer_nikcon {
+          flex: 0 0 auto;
+          max-width: none;
+        }
+        html.dcfmk-enabled table.dcfmk-list-table .gall_writer .dcfmk-user-identifier {
+          flex: 0 1 auto;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          margin-left: 3px;
+          color: var(--dcfmk-color-faint);
+          font-size: 9px;
+          font-weight: 400;
+        }
         html.dcfmk-enabled table.dcfmk-list-table .gall_writer:has(.user_data.add) {
           overflow: visible;
         }
@@ -7561,6 +7750,9 @@
           margin: 0 !important;
           transform: scale(1.2);
           transform-origin: center;
+        }
+        html.dcfmk-enabled.dcfmk-page-view .page_head .gall_issuebox > button[onclick*="gt_toggle_issue("] {
+          display: none !important;
         }
         html.dcfmk-enabled .page_head .gall_issuebox .issue_gallinfo,
         html.dcfmk-enabled .page_head .gall_issuebox > .bundle {
@@ -8090,28 +8282,29 @@
           z-index: 4;
           display: flex !important;
           box-sizing: border-box !important;
-          flex: 0 0 151px !important;
-          min-width: 151px !important;
-          max-width: 151px !important;
-          width: 151px !important;
+          flex: 0 0 160px !important;
+          min-width: 160px !important;
+          max-width: 160px !important;
+          width: 160px !important;
           height: 37px;
           align-self: flex-start;
           margin: 0 0 0 auto !important;
           padding: 0 !important;
-          border: 1px solid var(--dcfmk-color-border);
-          border-radius: 2px;
-          background: var(--dcfmk-color-surface-notice);
-          box-shadow: 0 1px 1px rgb(0 0 0 / 8%);
+          border: 0;
+          border-radius: 0;
+          background: transparent;
+          box-shadow: none;
         }
         html.dcfmk-enabled .list_array_option .right_box .output_array {
           display: flex !important;
           box-sizing: border-box;
           width: 100%;
-          height: 35px;
+          height: 37px;
           align-items: center;
-          gap: 5px;
+          justify-content: flex-end;
+          gap: 8px;
           margin: 0;
-          padding: 0 4px 0 5px;
+          padding: 0;
         }
         html.dcfmk-enabled .list_array_option .right_box .switch_btnbox {
           display: flex !important;
@@ -8127,9 +8320,13 @@
           position: relative;
           float: none !important;
           box-sizing: border-box;
-          width: 61px !important;
-          height: 35px;
+          width: 67px !important;
+          flex: 0 0 67px;
+          height: 32px;
           margin: 0 !important;
+          border: 1px solid var(--dcfmk-color-border-strong);
+          border-radius: 3px;
+          background: linear-gradient(to bottom, var(--dcfmk-color-control-gradient-top) 0, var(--dcfmk-color-control-gradient-bottom) 100%);
         }
         html.dcfmk-enabled .list_array_option .dcfmk-list-size-control > select {
           display: none !important;
@@ -8137,8 +8334,8 @@
         html.dcfmk-enabled .list_array_option .dcfmk-list-size-control > .select_area {
           display: block !important;
           box-sizing: border-box;
-          width: 61px !important;
-          height: 35px !important;
+          width: 100% !important;
+          height: 30px !important;
           margin: 0 !important;
           border: 0;
           background: transparent;
@@ -8147,12 +8344,12 @@
           position: relative;
           display: block;
           box-sizing: border-box;
-          width: 61px;
-          height: 35px;
+          width: 100%;
+          height: 30px;
           overflow: hidden;
           padding: 0 20px 0 9px;
           color: var(--dcfmk-color-muted);
-          font: 700 10px/35px var(--dcfmk-font);
+          font: 700 10px/30px var(--dcfmk-font);
           text-align: left;
           text-decoration: none;
           white-space: nowrap;
@@ -8163,7 +8360,7 @@
         }
         html.dcfmk-enabled .list_array_option .dcfmk-list-size-control .icon_option_more {
           position: absolute !important;
-          top: 14px !important;
+          top: 13px !important;
           right: 9px !important;
           width: 0 !important;
           height: 0 !important;
@@ -8179,7 +8376,7 @@
           right: -1px !important;
           left: auto !important;
           box-sizing: border-box;
-          width: 63px !important;
+          width: 67px !important;
           margin: 0 !important;
           padding: 2px 0 !important;
           border: 1px solid var(--dcfmk-color-border-control);
@@ -8534,6 +8731,8 @@
           min-width: 64px !important;
         }
         html.dcfmk-enabled .list_array_option .dcfmk-top-write-button {
+          border-color: var(--dcfmk-color-border-strong) !important;
+          color: var(--dcfmk-color-text-soft) !important;
           min-width: 70px !important;
           height: 32px;
           padding-right: 14px;
@@ -9280,7 +9479,7 @@
           transform: translateY(-50%);
         }
         html.dcfmk-enabled .dcfmk-article .dcfmk-article-header {
-          margin: 0 0 20px;
+          margin: 0 0 6px;
           border-top: 1px solid var(--dcfmk-color-border-strong) !important;
           border-bottom: 1px solid var(--dcfmk-color-border-strong);
         }
@@ -9306,8 +9505,12 @@
           white-space: nowrap;
         }
         html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .gall_writer {
+          display: flex;
+          box-sizing: border-box;
+          align-items: center;
+          justify-content: space-between;
           min-height: 34px;
-          padding: 7px 11px;
+          padding: 6px 11px;
           border-top: 0;
           background: var(--dcfmk-color-surface);
           line-height: 19px;
@@ -9316,14 +9519,54 @@
         html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .gall_scrap {
           display: none !important;
         }
+        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .gall_writer > .fl,
+        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .gall_writer > .fr {
+          float: none;
+          display: flex;
+          align-items: center;
+          min-height: 22px;
+        }
+        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .gall_writer > .fr {
+          flex-shrink: 0;
+          padding: 0;
+        }
+        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .fr > .gall_count,
+        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .fr > .gall_reply_num {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          box-sizing: border-box;
+          height: 22px;
+          padding: 0 10px 2px;
+          line-height: normal;
+        }
         html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .fr > span {
-          margin-left: 12px;
+          position: relative;
+          margin-left: 0;
           color: var(--dcfmk-color-muted);
           font-size: 11px;
         }
+        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .fr > .gall_comment {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          box-sizing: border-box;
+          height: 22px;
+          padding: 0 0 0 10px;
+        }
+        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .gall_comment a {
+          margin: 0;
+        }
+        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .fr > span::before {
+          position: absolute;
+          top: 50%;
+          left: 0;
+          margin: 0;
+          transform: translateY(-50%);
+        }
         html.dcfmk-enabled .dcfmk-article-body > .inner {
           margin-bottom: 0 !important;
-          padding: 20px 15px 0;
+          padding: 0 15px;
         }
         html.dcfmk-enabled .dcfmk-article-body .writing_view_box,
         html.dcfmk-enabled .dcfmk-article-body .write_div {
@@ -9743,6 +9986,7 @@
         AutomatedRequestCoordinator.noteNavigation();
         syncConfiguredListLinks();
         ShellView.mount(pageContext);
+        void NativeAlarmInstall.apply();
         ListView.mount();
         ArticleView.mount(pageContext);
         ConceptAlarmController.mount(pageContext);
