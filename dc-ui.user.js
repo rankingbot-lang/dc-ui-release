@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         디시인사이드 UI 변경
 // @namespace    https://gall.dcinside.com
-// @version      2.0.6
+// @version      2.0.7
 // @description  갤러리 UI 변경, 즐겨찾기·최근 방문 갤러리 UI개선, 단축키, 대문 보이기/숨기기, 개념글 알림, 광고 숨김 등
 // @author       rankingbot
 // @license      MIT
@@ -24,7 +24,7 @@
 (function () {
   "use strict";
 
-  const SCRIPT_VERSION = "2.0.6";
+  const SCRIPT_VERSION = "2.0.7";
   const THEME_ENABLED_KEY = "dcfmk:enabled";
   const LIST_SIZE_PREFERENCE_KEY = "dcfmk:list-size-preference";
   const SETTINGS_COLLAPSED_KEY = "dcfmk:settings-collapsed";
@@ -1364,6 +1364,16 @@
         }
         html.dcfmk-enabled:has(#css-darkmode) #dcfmk-gallery-strip .dcfmk-gallery-strip-inner {
           background: #2b2b2b;
+        }
+        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-shell #search_wrap .top_search,
+        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-shell #search_wrap .inner_search,
+        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-shell #search_wrap .in_keyword {
+          background: var(--dcfmk-color-surface) !important;
+        }
+        html.dcfmk-enabled:has(#css-darkmode) .dcfmk-fm-bottom-menu .bottom_search,
+        html.dcfmk-enabled:has(#css-darkmode) .dcfmk-fm-bottom-menu .bottom_search .inner_search,
+        html.dcfmk-enabled:has(#css-darkmode) .dcfmk-fm-bottom-menu .bottom_search .in_keyword {
+          background: var(--dcfmk-color-surface-muted) !important;
         }
         html.dcfmk-enabled:has(#css-darkmode) table.dcfmk-list-table thead th {
           background: #121212;
