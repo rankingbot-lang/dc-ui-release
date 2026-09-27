@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         디시인사이드 UI 변경
 // @namespace    https://gall.dcinside.com
-// @version      2.0.7
+// @version      2.0.8
 // @description  갤러리 UI 변경, 즐겨찾기·최근 방문 갤러리 UI개선, 단축키, 대문 보이기/숨기기, 개념글 알림, 광고 숨김 등
 // @author       rankingbot
 // @license      MIT
@@ -10,10 +10,11 @@
 // @match        https://gall.dcinside.com/board/lists*
 // @match        https://gall.dcinside.com/*/board/view*
 // @match        https://gall.dcinside.com/board/view*
-// @resource     dcfmk-fontawesome https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.6.0/fonts/fontawesome-webfont.woff2#sha256=c1732796c9dfafddff16db9660e67a879d723f376b0160cccad730c6c414eed3
+// @resource     dcui-fontawesome https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.6.0/fonts/fontawesome-webfont.woff2#sha256=c1732796c9dfafddff16db9660e67a879d723f376b0160cccad730c6c414eed3
 // @run-at       document-start
 // @grant        GM_getValue
 // @grant        GM_listValues
+// @grant        GM_deleteValue
 // @grant        GM_getResourceURL
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
@@ -24,16 +25,16 @@
 (function () {
   "use strict";
 
-  const SCRIPT_VERSION = "2.0.7";
-  const THEME_ENABLED_KEY = "dcfmk:enabled";
-  const LIST_SIZE_PREFERENCE_KEY = "dcfmk:list-size-preference";
-  const SETTINGS_COLLAPSED_KEY = "dcfmk:settings-collapsed";
-  const GALLERY_COVER_HIDDEN_KEY = "dcfmk:gallery-cover-hidden";
-  const USER_IDENTIFIER_VISIBLE_KEY = "dcfmk:user-identifier-visible";
-  const CONCEPT_ALARM_ENABLED_KEY = "dcfmk:concept-alarm-enabled";
-  const NATIVE_ALARM_INSTALL_KEY = "dcfmk:native-alarm-install";
-  const FAVORITE_SHORTCUT_CACHE_KEY = "dcfmk:favorite-shortcuts-cache";
-  const FAVORITE_SHORTCUT_CACHE_READY_KEY = "dcfmk:favorite-shortcuts-cache-ready";
+  const SCRIPT_VERSION = "2.0.8";
+  const THEME_ENABLED_KEY = "dcui:enabled";
+  const LIST_SIZE_PREFERENCE_KEY = "dcui:list-size-preference";
+  const SETTINGS_COLLAPSED_KEY = "dcui:settings-collapsed";
+  const GALLERY_COVER_HIDDEN_KEY = "dcui:gallery-cover-hidden";
+  const USER_IDENTIFIER_VISIBLE_KEY = "dcui:user-identifier-visible";
+  const CONCEPT_ALARM_ENABLED_KEY = "dcui:concept-alarm-enabled";
+  const NATIVE_ALARM_INSTALL_KEY = "dcui:native-alarm-install";
+  const FAVORITE_SHORTCUT_CACHE_KEY = "dcui:favorite-shortcuts-cache";
+  const FAVORITE_SHORTCUT_CACHE_READY_KEY = "dcui:favorite-shortcuts-cache-ready";
   const UI_CONFIG = Object.freeze({
     listSize: Object.freeze({
       defaultValue: "30",
@@ -93,10 +94,10 @@
 
   function syncConfiguredListLinks() {
     const selectors = [
-      "#dcfmk-gallery-strip a[href]",
-      "#dcfmk-sidebar .dcfmk-favorite-shortcut a[href]",
-      "#dcfmk-sidebar [data-role='sideConcept'][href]",
-      ".dcfmk-board-nav a[href]",
+      "#dcui-gallery-strip a[href]",
+      "#dcui-sidebar .dcui-favorite-shortcut a[href]",
+      "#dcui-sidebar [data-role='sideConcept'][href]",
+      ".dcui-board-nav a[href]",
     ];
     document.querySelectorAll(selectors.join(",")).forEach((link) => {
       const normalizedHref = galleryBoardHref(link.href);
@@ -117,12 +118,12 @@
     },
 
     navigate(event) {
-      if (!document.documentElement.classList.contains("dcfmk-enabled")) return;
+      if (!document.documentElement.classList.contains("dcui-enabled")) return;
       if (event.type === "click" && event.button !== 0) return;
       if (event.type === "auxclick" && event.button !== 1) return;
 
       const control = event.target.closest?.("a[href], button[onclick*='goList']");
-      if (!control || control.closest("#dcfmk-theme-toggle")) return;
+      if (!control || control.closest("#dcui-theme-toggle")) return;
       const rawHref = this.rawHrefFromControl(control);
       if (!rawHref || /^javascript:/i.test(rawHref) || rawHref.startsWith("#")) return;
 
@@ -146,8 +147,8 @@
     },
 
     mount() {
-      if (!initialThemeEnabled || window.__dcfmkListNavigationBound) return;
-      window.__dcfmkListNavigationBound = true;
+      if (!initialThemeEnabled || window.__dcuiListNavigationBound) return;
+      window.__dcuiListNavigationBound = true;
       document.addEventListener("click", (event) => this.navigate(event), true);
       document.addEventListener("auxclick", (event) => this.navigate(event), true);
     },
@@ -193,19 +194,19 @@
 
   if (!pageContext) return;
   const initialThemeEnabled = GM_getValue(THEME_ENABLED_KEY, true) !== false;
-  if (window.__dcfmkInitialized) return;
-  window.__dcfmkInitialized = true;
+  if (window.__dcuiInitialized) return;
+  window.__dcuiInitialized = true;
   initializeNativeAlarmInstall();
   BoardNavigationController.mount();
 
   const earlyShield = initialThemeEnabled ? document.createElement("style") : null;
   let earlyShieldObserver = null;
   if (earlyShield) {
-    earlyShield.id = "dcfmk-early-shield";
-    earlyShield.textContent = "html.dcfmk-booting body{visibility:hidden!important}";
+    earlyShield.id = "dcui-early-shield";
+    earlyShield.textContent = "html.dcui-booting body{visibility:hidden!important}";
     const installEarlyShield = () => {
       if (!document.documentElement || earlyShield.isConnected) return false;
-      document.documentElement.classList.add("dcfmk-booting");
+      document.documentElement.classList.add("dcui-booting");
       document.documentElement.appendChild(earlyShield);
       return true;
     };
@@ -223,10 +224,10 @@
     return String(value || "").replace(/\s+/g, " ").trim();
   }
 
-  const AUTOMATED_REQUEST_PAUSED_KEY = "dcfmk:automated-request-paused";
-  const AUTOMATED_REQUEST_LAST_AT_KEY = "dcfmk:automated-request-last-at";
-  const AUTOMATED_REQUEST_NAVIGATION_AT_KEY = "dcfmk:navigation-last-at";
-  const AUTOMATED_REQUEST_LOCK_NAME = "dcfmk:automated-request";
+  const AUTOMATED_REQUEST_PAUSED_KEY = "dcui:automated-request-paused";
+  const AUTOMATED_REQUEST_LAST_AT_KEY = "dcui:automated-request-last-at";
+  const AUTOMATED_REQUEST_NAVIGATION_AT_KEY = "dcui:navigation-last-at";
+  const AUTOMATED_REQUEST_LOCK_NAME = "dcui:automated-request";
   let automatedRequestLifecycle = new AbortController();
 
   class EmptyAutomatedResponseError extends Error {
@@ -303,7 +304,8 @@
       });
     },
 
-    async run(task, { force = false, shouldRun = null, navigationGapMs = this.minGapMs } = {}) {
+    async run(task, { force = false, shouldRun = null, navigationGapMs = this.minGapMs,
+      automatedGapMs = this.minGapMs } = {}) {
       const signal = this.signal();
       const execute = async () => {
         if (signal.aborted) throw this.abortError();
@@ -311,7 +313,7 @@
         if (typeof shouldRun === "function" && !await shouldRun()) return undefined;
         const lastAt = Number(GM_getValue(AUTOMATED_REQUEST_LAST_AT_KEY, 0)) || 0;
         const now = Date.now();
-        const automatedGap = Math.max(0, this.minGapMs - (now - lastAt));
+        const automatedGap = Math.max(0, automatedGapMs - (now - lastAt));
         const navigationGap = Math.max(0, Number(navigationGapMs) - (now - this.lastNavigationAt()));
         await this.wait(Math.max(automatedGap, navigationGap), signal);
         if (signal.aborted) throw this.abortError();
@@ -467,7 +469,7 @@
       ".gallview_contents",
       ".view_comment",
       ".cmt_wrap",
-      ".dcfmk-comments",
+      ".dcui-comments",
       "table.gall_list",
     ].join(","),
 
@@ -516,8 +518,8 @@
     },
 
     mount() {
-      if (!initialThemeEnabled || window.__dcfmkAdBlockerMounted) return;
-      window.__dcfmkAdBlockerMounted = true;
+      if (!initialThemeEnabled || window.__dcuiAdBlockerMounted) return;
+      window.__dcuiAdBlockerMounted = true;
       this.removeFrom(document);
       if (typeof MutationObserver !== "function") return;
       const observer = new MutationObserver((records) => {
@@ -526,7 +528,7 @@
         }
       });
       observer.observe(document, { childList: true, subtree: true });
-      window.__dcfmkAdBlockerObserver = observer;
+      window.__dcuiAdBlockerObserver = observer;
     },
   });
 
@@ -648,8 +650,8 @@
 
   const AnchoredPopupController = Object.freeze({
     openingClass(popupClass) {
-      return popupClass === "dcfmk-relation-popup"
-        ? "dcfmk-relation-popup-opening"
+      return popupClass === "dcui-relation-popup"
+        ? "dcui-relation-popup-opening"
         : "";
     },
 
@@ -657,21 +659,21 @@
       const className = this.openingClass(popupClass);
       if (!className) return;
       document.documentElement.classList.add(className);
-      if (document.documentElement.__dcfmkPopupOpeningTimer) {
-        window.clearTimeout(document.documentElement.__dcfmkPopupOpeningTimer);
+      if (document.documentElement.__dcuiPopupOpeningTimer) {
+        window.clearTimeout(document.documentElement.__dcuiPopupOpeningTimer);
       }
-      document.documentElement.__dcfmkPopupOpeningTimer = window.setTimeout(() => {
+      document.documentElement.__dcuiPopupOpeningTimer = window.setTimeout(() => {
         document.documentElement.classList.remove(className);
-        document.documentElement.__dcfmkPopupOpeningTimer = 0;
+        document.documentElement.__dcuiPopupOpeningTimer = 0;
       }, 10000);
     },
 
     clearOpening(popupClass) {
       const className = this.openingClass(popupClass);
       if (className) document.documentElement.classList.remove(className);
-      if (document.documentElement.__dcfmkPopupOpeningTimer) {
-        window.clearTimeout(document.documentElement.__dcfmkPopupOpeningTimer);
-        document.documentElement.__dcfmkPopupOpeningTimer = 0;
+      if (document.documentElement.__dcuiPopupOpeningTimer) {
+        window.clearTimeout(document.documentElement.__dcuiPopupOpeningTimer);
+        document.documentElement.__dcuiPopupOpeningTimer = 0;
       }
     },
 
@@ -690,8 +692,8 @@
     },
 
     rememberOrigin(popup) {
-      if (popup.__dcfmkAnchoredPopupOrigin) return;
-      popup.__dcfmkAnchoredPopupOrigin = {
+      if (popup.__dcuiAnchoredPopupOrigin) return;
+      popup.__dcuiAnchoredPopupOrigin = {
         parent: popup.parentNode,
         nextSibling: popup.nextSibling,
         style: popup.getAttribute("style"),
@@ -699,19 +701,19 @@
     },
 
     clearAlignmentTracking(popup) {
-      for (const timer of popup?.__dcfmkAnchoredPopupAlignmentTimers || []) {
+      for (const timer of popup?.__dcuiAnchoredPopupAlignmentTimers || []) {
         window.clearTimeout(timer);
       }
-      if (popup) popup.__dcfmkAnchoredPopupAlignmentTimers = [];
-      popup?.__dcfmkAnchoredPopupResizeObserver?.disconnect();
-      if (popup) popup.__dcfmkAnchoredPopupResizeObserver = null;
+      if (popup) popup.__dcuiAnchoredPopupAlignmentTimers = [];
+      popup?.__dcuiAnchoredPopupResizeObserver?.disconnect();
+      if (popup) popup.__dcuiAnchoredPopupResizeObserver = null;
     },
 
     restoreOrigin(popup) {
-      const origin = popup?.__dcfmkAnchoredPopupOrigin;
+      const origin = popup?.__dcuiAnchoredPopupOrigin;
       if (!origin?.parent?.isConnected || !popup.isConnected) return false;
-      popup.__dcfmkAnchoredPopupCloseObserver?.disconnect();
-      popup.__dcfmkAnchoredPopupCloseObserver = null;
+      popup.__dcuiAnchoredPopupCloseObserver?.disconnect();
+      popup.__dcuiAnchoredPopupCloseObserver = null;
       this.clearAlignmentTracking(popup);
       if (origin.nextSibling?.parentNode === origin.parent) {
         origin.parent.insertBefore(popup, origin.nextSibling);
@@ -719,9 +721,9 @@
         origin.parent.appendChild(popup);
       }
       popup.classList.remove(
-        "dcfmk-anchored-popup",
-        "dcfmk-manager-report-popup",
-        "dcfmk-relation-popup",
+        "dcui-anchored-popup",
+        "dcui-manager-report-popup",
+        "dcui-relation-popup",
       );
       if (origin.style === null) popup.removeAttribute("style");
       else popup.setAttribute("style", origin.style);
@@ -736,7 +738,7 @@
         if (!this.isShown(popup)) return;
         this.position(popup, resolveAnchor(), popupClass);
       };
-      popup.__dcfmkAnchoredPopupAlignmentTimers = [50, 150, 400, 1000, 2500]
+      popup.__dcuiAnchoredPopupAlignmentTimers = [50, 150, 400, 1000, 2500]
         .map((delay) => window.setTimeout(align, delay));
       if (typeof ResizeObserver !== "function") return;
       const observer = new ResizeObserver(align);
@@ -744,11 +746,11 @@
       const popupAnchor = resolveAnchor();
       if (popupHost) observer.observe(popupHost);
       if (popupAnchor && popupAnchor !== popupHost) observer.observe(popupAnchor);
-      popup.__dcfmkAnchoredPopupResizeObserver = observer;
+      popup.__dcuiAnchoredPopupResizeObserver = observer;
     },
 
     watchClose(popup) {
-      popup.__dcfmkAnchoredPopupCloseObserver?.disconnect();
+      popup.__dcuiAnchoredPopupCloseObserver?.disconnect();
       if (typeof MutationObserver !== "function") return;
       const observer = new MutationObserver(() => {
         if (this.isShown(popup)) return;
@@ -759,7 +761,7 @@
         attributes: true,
         attributeFilter: ["class", "style", "hidden"],
       });
-      popup.__dcfmkAnchoredPopupCloseObserver = observer;
+      popup.__dcuiAnchoredPopupCloseObserver = observer;
     },
 
     position(popup, anchor, popupClass = "") {
@@ -777,7 +779,7 @@
         popupHost.style.setProperty("position", "relative", "important");
       }
       this.rememberOrigin(popup);
-      popup.classList.add("dcfmk-anchored-popup");
+      popup.classList.add("dcui-anchored-popup");
       if (popupClass) popup.classList.add(popupClass);
       if (popup.parentElement !== popupHost) popupHost.appendChild(popup);
 
@@ -788,11 +790,11 @@
       const listRect = DcAdapter.listRoot()?.getBoundingClientRect();
       const top = Math.max(0, anchorRect.bottom - hostRect.top + popupHost.scrollTop + 5);
       const right = Math.max(0, hostRect.right - (listRect?.right || hostRect.right));
-      popup.style.setProperty("--dcfmk-anchored-popup-top", `${Math.round(top)}px`);
-      popup.style.setProperty("--dcfmk-anchored-popup-right", `${Math.round(right)}px`);
+      popup.style.setProperty("--dcui-anchored-popup-top", `${Math.round(top)}px`);
+      popup.style.setProperty("--dcui-anchored-popup-right", `${Math.round(right)}px`);
       popup.style.setProperty("position", "absolute", "important");
-      popup.style.setProperty("top", "var(--dcfmk-anchored-popup-top)", "important");
-      popup.style.setProperty("right", "var(--dcfmk-anchored-popup-right)", "important");
+      popup.style.setProperty("top", "var(--dcui-anchored-popup-top)", "important");
+      popup.style.setProperty("right", "var(--dcui-anchored-popup-right)", "important");
       popup.style.setProperty("bottom", "auto", "important");
       popup.style.setProperty("left", "auto", "important");
       popup.style.setProperty("margin", "0", "important");
@@ -804,9 +806,9 @@
     },
 
     watch(trigger, popupSelector, anchor, popupClass = "") {
-      trigger.__dcfmkAnchoredPopupObserver?.disconnect();
-      if (trigger.__dcfmkAnchoredPopupTimer) {
-        window.clearTimeout(trigger.__dcfmkAnchoredPopupTimer);
+      trigger.__dcuiAnchoredPopupObserver?.disconnect();
+      if (trigger.__dcuiAnchoredPopupTimer) {
+        window.clearTimeout(trigger.__dcuiAnchoredPopupTimer);
       }
       const resolveAnchor = () => (typeof anchor === "function" ? anchor() : anchor) || trigger;
       const finish = () => {
@@ -820,12 +822,12 @@
       const observer = new MutationObserver(() => {
         if (!finish()) return;
         observer.disconnect();
-        if (trigger.__dcfmkAnchoredPopupTimer) {
-          window.clearTimeout(trigger.__dcfmkAnchoredPopupTimer);
-          trigger.__dcfmkAnchoredPopupTimer = 0;
+        if (trigger.__dcuiAnchoredPopupTimer) {
+          window.clearTimeout(trigger.__dcuiAnchoredPopupTimer);
+          trigger.__dcuiAnchoredPopupTimer = 0;
         }
-        if (trigger.__dcfmkAnchoredPopupObserver === observer) {
-          trigger.__dcfmkAnchoredPopupObserver = null;
+        if (trigger.__dcuiAnchoredPopupObserver === observer) {
+          trigger.__dcuiAnchoredPopupObserver = null;
         }
       });
       observer.observe(document.body, {
@@ -834,14 +836,14 @@
         attributes: true,
         attributeFilter: ["class", "style"],
       });
-      trigger.__dcfmkAnchoredPopupObserver = observer;
-      trigger.__dcfmkAnchoredPopupTimer = window.setTimeout(() => {
+      trigger.__dcuiAnchoredPopupObserver = observer;
+      trigger.__dcuiAnchoredPopupTimer = window.setTimeout(() => {
         finish();
         observer.disconnect();
-        if (trigger.__dcfmkAnchoredPopupObserver === observer) {
-          trigger.__dcfmkAnchoredPopupObserver = null;
+        if (trigger.__dcuiAnchoredPopupObserver === observer) {
+          trigger.__dcuiAnchoredPopupObserver = null;
         }
-        trigger.__dcfmkAnchoredPopupTimer = 0;
+        trigger.__dcuiAnchoredPopupTimer = 0;
       }, 10000);
     },
 
@@ -858,17 +860,17 @@
     },
 
     clearPendingClick(trigger) {
-      if (trigger.__dcfmkNativeReadyTimer) {
-        window.clearTimeout(trigger.__dcfmkNativeReadyTimer);
-        trigger.__dcfmkNativeReadyTimer = 0;
+      if (trigger.__dcuiNativeReadyTimer) {
+        window.clearTimeout(trigger.__dcuiNativeReadyTimer);
+        trigger.__dcuiNativeReadyTimer = 0;
       }
-      delete trigger.dataset.dcfmkNativeClickPending;
+      delete trigger.dataset.dcuiNativeClickPending;
       trigger.removeAttribute("aria-busy");
     },
 
     queueNativeClick(trigger, functionName) {
-      if (trigger.dataset.dcfmkNativeClickPending === "true") return;
-      trigger.dataset.dcfmkNativeClickPending = "true";
+      if (trigger.dataset.dcuiNativeClickPending === "true") return;
+      trigger.dataset.dcuiNativeClickPending = "true";
       trigger.setAttribute("aria-busy", "true");
       const startedAt = Date.now();
       const check = () => {
@@ -877,35 +879,35 @@
           return;
         }
         if (!this.pageFunctionReady(functionName)) {
-          trigger.__dcfmkNativeReadyTimer = window.setTimeout(check, 25);
+          trigger.__dcuiNativeReadyTimer = window.setTimeout(check, 25);
           return;
         }
         this.clearPendingClick(trigger);
-        trigger.dataset.dcfmkNativeClickReplay = "true";
+        trigger.dataset.dcuiNativeClickReplay = "true";
         try {
           trigger.click();
         } finally {
-          delete trigger.dataset.dcfmkNativeClickReplay;
+          delete trigger.dataset.dcuiNativeClickReplay;
         }
       };
       check();
     },
 
     watchAfterNativeClick(trigger, popupSelector, anchor, popupClass) {
-      if (trigger.__dcfmkAnchoredPopupPostClickTimer) {
-        window.clearTimeout(trigger.__dcfmkAnchoredPopupPostClickTimer);
+      if (trigger.__dcuiAnchoredPopupPostClickTimer) {
+        window.clearTimeout(trigger.__dcuiAnchoredPopupPostClickTimer);
       }
-      trigger.__dcfmkAnchoredPopupPostClickTimer = window.setTimeout(() => {
-        trigger.__dcfmkAnchoredPopupPostClickTimer = 0;
+      trigger.__dcuiAnchoredPopupPostClickTimer = window.setTimeout(() => {
+        trigger.__dcuiAnchoredPopupPostClickTimer = 0;
         this.watch(trigger, popupSelector, anchor, popupClass);
       }, 0);
     },
 
     refreshInPlace({ popup, trigger, popupSelector, anchor, popupClass }) {
       if (!popup || !trigger) return;
-      trigger.__dcfmkAnchoredPopupRefreshObserver?.disconnect();
-      if (trigger.__dcfmkAnchoredPopupRefreshTimer) {
-        window.clearTimeout(trigger.__dcfmkAnchoredPopupRefreshTimer);
+      trigger.__dcuiAnchoredPopupRefreshObserver?.disconnect();
+      if (trigger.__dcuiAnchoredPopupRefreshTimer) {
+        window.clearTimeout(trigger.__dcuiAnchoredPopupRefreshTimer);
       }
       const resolveAnchor = () => (typeof anchor === "function" ? anchor() : anchor) || trigger;
       const merge = () => {
@@ -924,11 +926,11 @@
       };
       const finish = () => {
         if (!merge()) return false;
-        trigger.__dcfmkAnchoredPopupRefreshObserver?.disconnect();
-        trigger.__dcfmkAnchoredPopupRefreshObserver = null;
-        if (trigger.__dcfmkAnchoredPopupRefreshTimer) {
-          window.clearTimeout(trigger.__dcfmkAnchoredPopupRefreshTimer);
-          trigger.__dcfmkAnchoredPopupRefreshTimer = 0;
+        trigger.__dcuiAnchoredPopupRefreshObserver?.disconnect();
+        trigger.__dcuiAnchoredPopupRefreshObserver = null;
+        if (trigger.__dcuiAnchoredPopupRefreshTimer) {
+          window.clearTimeout(trigger.__dcuiAnchoredPopupRefreshTimer);
+          trigger.__dcuiAnchoredPopupRefreshTimer = 0;
         }
         return true;
       };
@@ -936,14 +938,14 @@
       if (typeof MutationObserver !== "function") return;
       const observer = new MutationObserver(finish);
       observer.observe(document.body, { childList: true, subtree: true });
-      trigger.__dcfmkAnchoredPopupRefreshObserver = observer;
-      trigger.__dcfmkAnchoredPopupRefreshTimer = window.setTimeout(() => {
+      trigger.__dcuiAnchoredPopupRefreshObserver = observer;
+      trigger.__dcuiAnchoredPopupRefreshTimer = window.setTimeout(() => {
         finish();
         observer.disconnect();
-        if (trigger.__dcfmkAnchoredPopupRefreshObserver === observer) {
-          trigger.__dcfmkAnchoredPopupRefreshObserver = null;
+        if (trigger.__dcuiAnchoredPopupRefreshObserver === observer) {
+          trigger.__dcuiAnchoredPopupRefreshObserver = null;
         }
-        trigger.__dcfmkAnchoredPopupRefreshTimer = 0;
+        trigger.__dcuiAnchoredPopupRefreshTimer = 0;
       }, 10000);
     },
 
@@ -964,10 +966,10 @@
       nativeFunction = "",
       closeSelector = "",
     }) {
-      if (!trigger || !popupSelector || trigger.dataset.dcfmkAnchoredPopupBound === popupSelector) return;
-      trigger.dataset.dcfmkAnchoredPopupBound = popupSelector;
+      if (!trigger || !popupSelector || trigger.dataset.dcuiAnchoredPopupBound === popupSelector) return;
+      trigger.dataset.dcuiAnchoredPopupBound = popupSelector;
       trigger.addEventListener("click", (event) => {
-        if (!document.documentElement.classList.contains("dcfmk-enabled")) return;
+        if (!document.documentElement.classList.contains("dcui-enabled")) return;
         const openPopup = document.querySelector(popupSelector);
         if (this.isVisiblyOpen(openPopup)) {
           event.preventDefault();
@@ -975,7 +977,7 @@
           this.closeFromTrigger(openPopup, closeSelector);
           return;
         }
-        if (trigger.dataset.dcfmkNativeClickReplay === "true") {
+        if (trigger.dataset.dcuiNativeClickReplay === "true") {
           this.watchAfterNativeClick(trigger, popupSelector, anchor, popupClass);
           return;
         }
@@ -993,7 +995,7 @@
   function bindEarlyAnchoredPopupClicks() {
     let pendingPointerActivation = null;
     const recoverableTriggerFromEvent = (event) => event.target.closest?.(
-      ".btn_mngadmin_report, .gall_issuebox .relate, .dcfmk-submanager-toggle, button.smallestgag[onclick*='mini_member_join']",
+      ".btn_mngadmin_report, .gall_issuebox .relate, .dcui-submanager-toggle, button.smallestgag[onclick*='mini_member_join']",
     ) || null;
 
     document.addEventListener("pointerdown", (event) => {
@@ -1041,7 +1043,7 @@
       }
       const memberJoinTrigger = event.target.closest?.("button.smallestgag[onclick*='mini_member_join']");
       if (memberJoinTrigger) {
-        if (memberJoinTrigger.dataset.dcfmkNativeClickReplay === "true") return;
+        if (memberJoinTrigger.dataset.dcuiNativeClickReplay === "true") return;
         if (GM_getValue(THEME_ENABLED_KEY, true) === false) return;
         if (!AnchoredPopupController.pageFunctionReady("mini_member_join")) {
           event.preventDefault();
@@ -1055,7 +1057,7 @@
         "#pop_manage_report_list a[href*='get_manage_report']",
       ].join(","));
       if (managerPopupAction) {
-        const reportTrigger = document.querySelector(".dcfmk-manager-line .btn_mngadmin_report")
+        const reportTrigger = document.querySelector(".dcui-manager-line .btn_mngadmin_report")
           || document.querySelector(".btn_mngadmin_report");
         const currentPopup = managerPopupAction.closest("#pop_manage_report_list");
         if (reportTrigger) {
@@ -1063,8 +1065,8 @@
             popup: currentPopup,
             trigger: reportTrigger,
             popupSelector: "#pop_manage_report_list",
-            anchor: () => document.querySelector(".dcfmk-manager-line") || reportTrigger,
-            popupClass: "dcfmk-manager-report-popup",
+            anchor: () => document.querySelector(".dcui-manager-line") || reportTrigger,
+            popupClass: "dcui-manager-report-popup",
           });
         }
         return;
@@ -1073,24 +1075,24 @@
       if (!trigger) return;
       if (trigger.matches(".gall_issuebox .relate")
         && !AnchoredPopupController.isVisiblyOpen(document.querySelector("#relation_popup"))) {
-        AnchoredPopupController.armOpening("dcfmk-relation-popup");
+        AnchoredPopupController.armOpening("dcui-relation-popup");
       }
-      if (trigger.dataset.dcfmkAnchoredPopupBound) return;
+      if (trigger.dataset.dcuiAnchoredPopupBound) return;
       if (GM_getValue(THEME_ENABLED_KEY, true) === false) return;
       const isManager = trigger.matches(".btn_mngadmin_report");
       const config = isManager
         ? {
             popupSelector: "#pop_manage_report_list",
-            popupClass: "dcfmk-manager-report-popup",
+            popupClass: "dcui-manager-report-popup",
             nativeFunction: "get_manage_report",
             closeSelector: ".poply_whiteclose",
-            anchor: () => document.querySelector(".dcfmk-manager-line")
+            anchor: () => document.querySelector(".dcui-manager-line")
               || trigger.closest(".info_cont, .minor_intro_box, .mini_intro_box, .person_intro_box")
               || trigger,
           }
         : {
             popupSelector: "#relation_popup",
-            popupClass: "dcfmk-relation-popup",
+            popupClass: "dcui-relation-popup",
             nativeFunction: "open_relation",
             closeSelector: ".poply_bgblueclose",
             anchor: () => trigger.closest(".page_head") || trigger,
@@ -1102,7 +1104,7 @@
         AnchoredPopupController.closeFromTrigger(openPopup, config.closeSelector);
         return;
       }
-      if (trigger.dataset.dcfmkNativeClickReplay === "true") {
+      if (trigger.dataset.dcuiNativeClickReplay === "true") {
         AnchoredPopupController.watchAfterNativeClick(
           trigger,
           config.popupSelector,
@@ -1127,7 +1129,7 @@
 
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" || !event.target.closest?.("#pop_manage_report_list")) return;
-      const reportTrigger = document.querySelector(".dcfmk-manager-line .btn_mngadmin_report")
+      const reportTrigger = document.querySelector(".dcui-manager-line .btn_mngadmin_report")
         || document.querySelector(".btn_mngadmin_report");
       const currentPopup = event.target.closest("#pop_manage_report_list");
       if (!reportTrigger || !currentPopup) return;
@@ -1135,8 +1137,8 @@
         popup: currentPopup,
         trigger: reportTrigger,
         popupSelector: "#pop_manage_report_list",
-        anchor: () => document.querySelector(".dcfmk-manager-line") || reportTrigger,
-        popupClass: "dcfmk-manager-report-popup",
+        anchor: () => document.querySelector(".dcui-manager-line") || reportTrigger,
+        popupClass: "dcui-manager-report-popup",
       });
     }, true);
   }
@@ -1150,40 +1152,40 @@
 
     init(context) {
       const root = document.documentElement;
-      root.classList.add("dcfmk-ready", `dcfmk-page-${context.pageType}`, `dcfmk-gallery-${context.galleryType}`);
-      root.classList.toggle("dcfmk-realtime-best", context.isRealtimeBest);
-      root.dataset.dcfmkVersion = SCRIPT_VERSION;
+      root.classList.add("dcui-ready", `dcui-page-${context.pageType}`, `dcui-gallery-${context.galleryType}`);
+      root.classList.toggle("dcui-realtime-best", context.isRealtimeBest);
+      root.dataset.dcuiVersion = SCRIPT_VERSION;
       this.injectBaseStyle();
-      root.classList.toggle("dcfmk-enabled", this.isEnabled());
+      root.classList.toggle("dcui-enabled", this.isEnabled());
       this.mountScreenToggle();
     },
 
     setEnabled(enabled) {
       GM_setValue(THEME_ENABLED_KEY, Boolean(enabled));
-      document.documentElement.classList.toggle("dcfmk-enabled", Boolean(enabled));
+      document.documentElement.classList.toggle("dcui-enabled", Boolean(enabled));
     },
 
     mountScreenToggle(target = null) {
       if (!this.isEnabled()) this.restoreNativeDarkMode();
       if (!target && this.isEnabled()) {
-        target = document.querySelector("#dcfmk-shell [data-role='themeToggleMount']");
+        target = document.querySelector("#dcui-shell [data-role='themeToggleMount']");
       }
-      let button = document.getElementById("dcfmk-theme-toggle");
+      let button = document.getElementById("dcui-theme-toggle");
       if (!button) {
         button = document.createElement("button");
-        button.id = "dcfmk-theme-toggle";
+        button.id = "dcui-theme-toggle";
         button.type = "button";
         button.setAttribute("role", "switch");
         button.innerHTML = `
-          <span class="dcfmk-theme-toggle-label">UI변경</span>
-          <span class="dcfmk-theme-toggle-track" aria-hidden="true">
-            <span class="dcfmk-theme-toggle-thumb"></span>
+          <span class="dcui-theme-toggle-label">UI변경</span>
+          <span class="dcui-theme-toggle-track" aria-hidden="true">
+            <span class="dcui-theme-toggle-thumb"></span>
           </span>
         `;
         button.addEventListener("click", () => {
-          if (button.dataset.dcfmkThemeTransitioning === "true") return;
-          button.dataset.dcfmkThemeTransitioning = "true";
-          const thumb = button.querySelector(".dcfmk-theme-toggle-thumb");
+          if (button.dataset.dcuiThemeTransitioning === "true") return;
+          button.dataset.dcuiThemeTransitioning = "true";
+          const thumb = button.querySelector(".dcui-theme-toggle-thumb");
           if (thumb) getComputedStyle(thumb).transform;
           GM_setValue(THEME_ENABLED_KEY, !this.isEnabled());
           this.syncScreenToggle(button);
@@ -1196,10 +1198,10 @@
     },
 
     restoreNativeDarkMode() {
-      const nativeDarkMode = document.querySelector("#dcfmk-shell .dcfmk-native-dark-mode");
-      const anchor = document.getElementById("dcfmk-native-dark-mode-anchor");
+      const nativeDarkMode = document.querySelector("#dcui-shell .dcui-native-dark-mode");
+      const anchor = document.getElementById("dcui-native-dark-mode-anchor");
       if (!nativeDarkMode || !anchor) return;
-      nativeDarkMode.classList.remove("dcfmk-native-dark-mode");
+      nativeDarkMode.classList.remove("dcui-native-dark-mode");
       anchor.replaceWith(nativeDarkMode);
     },
 
@@ -1212,212 +1214,208 @@
 
     placeScreenToggle(button, target = null) {
       if (target) {
-        document.getElementById("dcfmk-native-theme-toggle-mount")?.remove();
-        document.getElementById("dcfmk-native-theme-toggle-list")?.remove();
+        document.getElementById("dcui-native-theme-toggle-mount")?.remove();
+        document.getElementById("dcui-native-theme-toggle-list")?.remove();
         target.appendChild(button);
         return;
       }
 
       const nativeDarkMode = document.querySelector("#top > .dcheader .area_links > .darkmodebox, .dcheader .area_links > .darkmodebox");
       if (nativeDarkMode) {
-        document.getElementById("dcfmk-native-theme-toggle-mount")?.remove();
-        let list = document.getElementById("dcfmk-native-theme-toggle-list");
+        document.getElementById("dcui-native-theme-toggle-mount")?.remove();
+        let list = document.getElementById("dcui-native-theme-toggle-list");
         if (!list) {
           list = document.createElement("ul");
-          list.id = "dcfmk-native-theme-toggle-list";
-          list.className = "fl dcfmk-theme-toggle-list";
+          list.id = "dcui-native-theme-toggle-list";
+          list.className = "fl dcui-theme-toggle-list";
           const item = document.createElement("li");
-          item.id = "dcfmk-native-theme-toggle-item";
+          item.id = "dcui-native-theme-toggle-item";
           list.appendChild(item);
           nativeDarkMode.insertAdjacentElement("afterend", list);
         }
-        list.querySelector("#dcfmk-native-theme-toggle-item")?.appendChild(button);
+        list.querySelector("#dcui-native-theme-toggle-item")?.appendChild(button);
         return;
       }
       document.body.appendChild(button);
     },
 
     injectBaseStyle() {
-      if (document.getElementById("dcfmk-base-style")) return;
+      if (document.getElementById("dcui-base-style")) return;
 
       const style = document.createElement("style");
-      style.id = "dcfmk-base-style";
+      style.id = "dcui-base-style";
       style.textContent = `
-        html.dcfmk-ready {
-          --dcfmk-page-width: 1050px;
-          --dcfmk-content-width: 840px;
-          --dcfmk-sidebar-width: 190px;
-          --dcfmk-column-gap: 20px;
-          --dcfmk-color-text: #333;
-          --dcfmk-color-text-strong: #222;
-          --dcfmk-color-text-soft: #555;
-          --dcfmk-color-muted: #777;
-          --dcfmk-color-faint: #999;
-          --dcfmk-color-featured-title: #666;
-          --dcfmk-color-featured-visited: #a6a6a6;
-          --dcfmk-color-on-accent: #fff;
-          --dcfmk-color-link: #3b4890;
-          --dcfmk-color-link-secondary: #3262c5;
-          --dcfmk-color-link-bright: #377ee9;
-          --dcfmk-color-link-muted: #369;
-          --dcfmk-color-accent: #3b4890;
-          --dcfmk-color-nav: #29367c;
-          --dcfmk-color-nav-light: #3b4890;
-          --dcfmk-color-surface: #fff;
-          --dcfmk-color-subtle: #f9f9f9;
-          --dcfmk-color-surface-muted: #f5f5f5;
-          --dcfmk-color-surface-strong: #eee;
-          --dcfmk-color-surface-hover: #f3f7ff;
-          --dcfmk-color-surface-selected: #eef0f8;
-          --dcfmk-color-surface-notice: #fafafa;
-          --dcfmk-color-surface-survey: #f7f9fd;
-          --dcfmk-color-surface-ad: #fffdf7;
-          --dcfmk-color-border: #ddd;
-          --dcfmk-color-border-soft: #e7e7e7;
-          --dcfmk-color-border-strong: #ccc;
-          --dcfmk-color-border-control: #aaa;
-          --dcfmk-color-border-accent: #29367c;
-          --dcfmk-color-icon: #596273;
-          --dcfmk-color-control-hover: #d4d4d4;
-          --dcfmk-color-control-active: #e4e4e4;
-          --dcfmk-color-toggle-track: #bbb;
-          --dcfmk-color-control-gradient-top: #fff;
-          --dcfmk-color-control-gradient-bottom: #f3f3f3;
-          --dcfmk-color-control-gradient-soft-bottom: #f9f9f9;
-          --dcfmk-color-control-highlight: #fff;
-          --dcfmk-color-selection: #e4e7f3;
-          --dcfmk-color-selection-text: #111;
-          --dcfmk-control-border: #b9c1dc;
-          --dcfmk-control-border-hover: #8996c8;
-          --dcfmk-control-border-focus: #3b4890;
-          --dcfmk-control-addon-border: #d7dbea;
-          --dcfmk-control-addon-surface: #f4f5fa;
-          --dcfmk-control-radius: 3px;
-          --dcfmk-control-shadow: 0 1px 1px rgb(40 50 100 / 5%);
-          --dcfmk-font: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", Arial, Dotum, 돋움, sans-serif;
+        html.dcui-ready {
+          --dcui-page-width: 1050px;
+          --dcui-content-width: 840px;
+          --dcui-sidebar-width: 190px;
+          --dcui-column-gap: 20px;
+          --dcui-color-text: #333;
+          --dcui-color-text-strong: #222;
+          --dcui-color-text-soft: #555;
+          --dcui-color-muted: #777;
+          --dcui-color-faint: #999;
+          --dcui-color-featured-title: #666;
+          --dcui-color-featured-visited: #a6a6a6;
+          --dcui-color-on-accent: #fff;
+          --dcui-color-link: #3b4890;
+          --dcui-color-link-secondary: #3262c5;
+          --dcui-color-link-bright: #377ee9;
+          --dcui-color-link-muted: #369;
+          --dcui-color-accent: #3b4890;
+          --dcui-color-nav: #29367c;
+          --dcui-color-nav-light: #3b4890;
+          --dcui-color-surface: #fff;
+          --dcui-color-subtle: #f9f9f9;
+          --dcui-color-surface-muted: #f5f5f5;
+          --dcui-color-surface-strong: #eee;
+          --dcui-color-surface-hover: #f3f7ff;
+          --dcui-color-surface-selected: #eef0f8;
+          --dcui-color-surface-notice: #fafafa;
+          --dcui-color-surface-survey: #f7f9fd;
+          --dcui-color-surface-ad: #fffdf7;
+          --dcui-color-border: #ddd;
+          --dcui-color-border-soft: #e7e7e7;
+          --dcui-color-border-strong: #ccc;
+          --dcui-color-border-control: #aaa;
+          --dcui-color-border-accent: #29367c;
+          --dcui-color-icon: #596273;
+          --dcui-color-control-hover: #d4d4d4;
+          --dcui-color-control-active: #e4e4e4;
+          --dcui-color-toggle-track: #bbb;
+          --dcui-color-control-gradient-top: #fff;
+          --dcui-color-control-gradient-bottom: #f3f3f3;
+          --dcui-color-control-gradient-soft-bottom: #f9f9f9;
+          --dcui-color-control-highlight: #fff;
+          --dcui-control-border: #b9c1dc;
+          --dcui-control-border-hover: #8996c8;
+          --dcui-control-border-focus: #3b4890;
+          --dcui-control-addon-border: #d7dbea;
+          --dcui-control-addon-surface: #f4f5fa;
+          --dcui-control-radius: 3px;
+          --dcui-control-shadow: 0 1px 1px rgb(40 50 100 / 5%);
+          --dcui-font: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", Arial, Dotum, 돋움, sans-serif;
         }
-        html.dcfmk-enabled {
-          color: var(--dcfmk-color-text);
-          background: var(--dcfmk-color-surface);
+        html.dcui-enabled {
+          color: var(--dcui-color-text);
+          background: var(--dcui-color-surface);
         }
-        html.dcfmk-ready:has(#css-darkmode) {
+        html.dcui-ready:has(#css-darkmode) {
           color-scheme: dark;
-          --dcfmk-color-text: #ccc;
-          --dcfmk-color-text-strong: #ddd;
-          --dcfmk-color-text-soft: #bbb;
-          --dcfmk-color-muted: #999;
-          --dcfmk-color-faint: #888;
-          --dcfmk-color-featured-title: #999;
-          --dcfmk-color-featured-visited: #555;
-          --dcfmk-color-on-accent: #fff;
-          --dcfmk-color-link: #afafaf;
-          --dcfmk-color-link-secondary: #98c7e4;
-          --dcfmk-color-link-bright: #377ee9;
-          --dcfmk-color-link-muted: #999;
-          --dcfmk-color-accent: #7d8fe5;
-          --dcfmk-color-nav: #8294ee;
-          --dcfmk-color-nav-light: #4e5fae;
-          --dcfmk-color-surface: #121212;
-          --dcfmk-color-subtle: #191919;
-          --dcfmk-color-surface-muted: #222;
-          --dcfmk-color-surface-strong: #333;
-          --dcfmk-color-surface-hover: #232323;
-          --dcfmk-color-surface-selected: #232323;
-          --dcfmk-color-surface-notice: #232323;
-          --dcfmk-color-surface-survey: #222;
-          --dcfmk-color-surface-ad: #222;
-          --dcfmk-color-border: #444;
-          --dcfmk-color-border-soft: #222;
-          --dcfmk-color-border-strong: #555;
-          --dcfmk-color-border-control: #666;
-          --dcfmk-color-border-accent: #4e5fae;
-          --dcfmk-color-icon: #aaa;
-          --dcfmk-color-control-hover: #333;
-          --dcfmk-color-control-active: #333;
-          --dcfmk-color-toggle-track: #555;
-          --dcfmk-color-control-gradient-top: #222;
-          --dcfmk-color-control-gradient-bottom: #191919;
-          --dcfmk-color-control-gradient-soft-bottom: #111;
-          --dcfmk-color-control-highlight: #191919;
-          --dcfmk-color-selection: #333;
-          --dcfmk-color-selection-text: #ddd;
-          --dcfmk-control-border: #444;
-          --dcfmk-control-border-hover: #666;
-          --dcfmk-control-border-focus: #aaa;
-          --dcfmk-control-addon-border: #444;
-          --dcfmk-control-addon-surface: #222;
-          --dcfmk-control-shadow: 0 1px 1px rgb(0 0 0 / 28%);
+          --dcui-color-text: #ccc;
+          --dcui-color-text-strong: #ddd;
+          --dcui-color-text-soft: #bbb;
+          --dcui-color-muted: #999;
+          --dcui-color-faint: #888;
+          --dcui-color-featured-title: #999;
+          --dcui-color-featured-visited: #555;
+          --dcui-color-on-accent: #fff;
+          --dcui-color-link: #afafaf;
+          --dcui-color-link-secondary: #98c7e4;
+          --dcui-color-link-bright: #377ee9;
+          --dcui-color-link-muted: #999;
+          --dcui-color-accent: #7d8fe5;
+          --dcui-color-nav: #8294ee;
+          --dcui-color-nav-light: #4e5fae;
+          --dcui-color-surface: #121212;
+          --dcui-color-subtle: #191919;
+          --dcui-color-surface-muted: #222;
+          --dcui-color-surface-strong: #333;
+          --dcui-color-surface-hover: #232323;
+          --dcui-color-surface-selected: #232323;
+          --dcui-color-surface-notice: #232323;
+          --dcui-color-surface-survey: #222;
+          --dcui-color-surface-ad: #222;
+          --dcui-color-border: #444;
+          --dcui-color-border-soft: #222;
+          --dcui-color-border-strong: #555;
+          --dcui-color-border-control: #666;
+          --dcui-color-border-accent: #4e5fae;
+          --dcui-color-icon: #aaa;
+          --dcui-color-control-hover: #333;
+          --dcui-color-control-active: #333;
+          --dcui-color-toggle-track: #555;
+          --dcui-color-control-gradient-top: #222;
+          --dcui-color-control-gradient-bottom: #191919;
+          --dcui-color-control-gradient-soft-bottom: #111;
+          --dcui-color-control-highlight: #191919;
+          --dcui-control-border: #444;
+          --dcui-control-border-hover: #666;
+          --dcui-control-border-focus: #aaa;
+          --dcui-control-addon-border: #444;
+          --dcui-control-addon-surface: #222;
+          --dcui-control-shadow: 0 1px 1px rgb(0 0 0 / 28%);
         }
         /* FM Korea /lol night_mode, measured 2026-09-19. Keep DC branding
            and native dark-mode activation; apply the neutral surface palette. */
-        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-shell .dcfmk-nav-bar nav {
+        html.dcui-enabled:has(#css-darkmode) #dcui-shell .dcui-nav-bar nav {
           background: #333;
           border-color: #444;
         }
-        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-shell .dcfmk-nav-bar a {
+        html.dcui-enabled:has(#css-darkmode) #dcui-shell .dcui-nav-bar a {
           color: #ddd;
           text-shadow: none;
         }
-        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-shell .dcfmk-nav-bar a:is(:hover, :focus-visible, .dcfmk-active) {
+        html.dcui-enabled:has(#css-darkmode) #dcui-shell .dcui-nav-bar a:is(:hover, :focus-visible, .dcui-active) {
           color: #cece34;
           background: #363636;
         }
-        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-gallery-strip .dcfmk-gallery-strip-inner {
+        html.dcui-enabled:has(#css-darkmode) #dcui-gallery-strip .dcui-gallery-strip-inner {
           background: #2b2b2b;
         }
-        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-shell #search_wrap .top_search,
-        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-shell #search_wrap .inner_search,
-        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-shell #search_wrap .in_keyword {
-          background: var(--dcfmk-color-surface) !important;
+        html.dcui-enabled:has(#css-darkmode) #dcui-shell #search_wrap .top_search,
+        html.dcui-enabled:has(#css-darkmode) #dcui-shell #search_wrap .inner_search,
+        html.dcui-enabled:has(#css-darkmode) #dcui-shell #search_wrap .in_keyword {
+          background: var(--dcui-color-surface) !important;
         }
-        html.dcfmk-enabled:has(#css-darkmode) .dcfmk-fm-bottom-menu .bottom_search,
-        html.dcfmk-enabled:has(#css-darkmode) .dcfmk-fm-bottom-menu .bottom_search .inner_search,
-        html.dcfmk-enabled:has(#css-darkmode) .dcfmk-fm-bottom-menu .bottom_search .in_keyword {
-          background: var(--dcfmk-color-surface-muted) !important;
+        html.dcui-enabled:has(#css-darkmode) .dcui-fm-bottom-menu .bottom_search,
+        html.dcui-enabled:has(#css-darkmode) .dcui-fm-bottom-menu .bottom_search .inner_search,
+        html.dcui-enabled:has(#css-darkmode) .dcui-fm-bottom-menu .bottom_search .in_keyword {
+          background: var(--dcui-color-surface-muted) !important;
         }
-        html.dcfmk-enabled:has(#css-darkmode) table.dcfmk-list-table thead th {
+        html.dcui-enabled:has(#css-darkmode) table.dcui-list-table thead th {
           background: #121212;
           border-color: #3c3c3c;
           box-shadow: inset 0 -1px 0 #191919;
         }
-        html.dcfmk-enabled:has(#css-darkmode) table.dcfmk-list-table .gall_tit > a:not(.reply_numbox) {
+        html.dcui-enabled:has(#css-darkmode) table.dcui-list-table .gall_tit > a:not(.reply_numbox) {
           color: #afafaf;
         }
-        html.dcfmk-enabled:has(#css-darkmode) table.dcfmk-list-table .gall_tit > a:not(.reply_numbox):visited {
+        html.dcui-enabled:has(#css-darkmode) table.dcui-list-table .gall_tit > a:not(.reply_numbox):visited {
           color: #666;
         }
-        html.dcfmk-enabled:has(#css-darkmode) .dcfmk-article-body :is(.writing_view_box, .write_div),
-        html.dcfmk-enabled:has(#css-darkmode) .dcfmk-comments .usertxt {
+        html.dcui-enabled:has(#css-darkmode) .dcui-article-body :is(.writing_view_box, .write_div),
+        html.dcui-enabled:has(#css-darkmode) .dcui-comments .usertxt {
           color: #bbb;
         }
-        html.dcfmk-enabled:has(#css-darkmode) .dcfmk-article-body :is(.writing_view_box, .write_div) a {
+        html.dcui-enabled:has(#css-darkmode) .dcui-article-body :is(.writing_view_box, .write_div) a {
           color: #98c7e4;
         }
-        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-shell :is(#alarmList, #alarmConf),
-        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-shell :is(#alarmList, #alarmConf) > .pop_content {
-          background: var(--dcfmk-color-surface);
-          border-color: var(--dcfmk-color-border);
-          color: var(--dcfmk-color-text);
+        html.dcui-enabled:has(#css-darkmode) #dcui-shell :is(#alarmList, #alarmConf),
+        html.dcui-enabled:has(#css-darkmode) #dcui-shell :is(#alarmList, #alarmConf) > .pop_content {
+          background: var(--dcui-color-surface);
+          border-color: var(--dcui-color-border);
+          color: var(--dcui-color-text);
         }
-        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-shell :is(#alarmList, #alarmConf) .pop_head {
-          background: var(--dcfmk-color-surface-muted);
-          border-color: var(--dcfmk-color-border);
+        html.dcui-enabled:has(#css-darkmode) #dcui-shell :is(#alarmList, #alarmConf) .pop_head {
+          background: var(--dcui-color-surface-muted);
+          border-color: var(--dcui-color-border);
         }
-        html.dcfmk-enabled:has(#css-darkmode) #dcfmk-shell :is(#alarmList, #alarmConf) :is(h3, .notice_txt, .btn_noti_alldel, .btn_noti_setting) {
-          color: var(--dcfmk-color-text-soft);
+        html.dcui-enabled:has(#css-darkmode) #dcui-shell :is(#alarmList, #alarmConf) :is(h3, .notice_txt, .btn_noti_alldel, .btn_noti_setting) {
+          color: var(--dcui-color-text-soft);
         }
-        html.dcfmk-enabled:has(#css-darkmode) :is(#dcfmk-sidebar .setting_list, #dcfmk-settings-modal) input[type="checkbox"] {
+        html.dcui-enabled:has(#css-darkmode) :is(#dcui-sidebar .setting_list, #dcui-settings-modal) input[type="checkbox"] {
           accent-color: #888;
         }
-        html.dcfmk-enabled:has(#css-darkmode) :is(#dcfmk-sidebar .setting_list, #dcfmk-settings-modal) .checkbox .checkmark {
+        html.dcui-enabled:has(#css-darkmode) :is(#dcui-sidebar .setting_list, #dcui-settings-modal) .checkbox .checkmark {
           background: #121212 !important;
           border-color: #666 !important;
         }
-        html.dcfmk-enabled:has(#css-darkmode) :is(#dcfmk-sidebar .setting_list, #dcfmk-settings-modal) .checkbox input[type="checkbox"]:checked + .checkmark {
+        html.dcui-enabled:has(#css-darkmode) :is(#dcui-sidebar .setting_list, #dcui-settings-modal) .checkbox input[type="checkbox"]:checked + .checkmark {
           background: #333 !important;
           border-color: #888 !important;
         }
-        html.dcfmk-enabled:has(#css-darkmode) :is(#dcfmk-sidebar .setting_list, #dcfmk-settings-modal) .checkbox input[type="checkbox"]:checked + .checkmark::after {
+        html.dcui-enabled:has(#css-darkmode) :is(#dcui-sidebar .setting_list, #dcui-settings-modal) .checkbox input[type="checkbox"]:checked + .checkmark::after {
           position: absolute;
           display: block;
           top: 50%;
@@ -1431,100 +1429,96 @@
           transform: translate(-50%, -65%) rotate(45deg);
           content: "";
         }
-        html.dcfmk-enabled:has(#css-darkmode) :is(#dcfmk-sidebar .setting_list, #dcfmk-settings-modal) .checkbox input[type="checkbox"]:not(:checked) + .checkmark::after {
+        html.dcui-enabled:has(#css-darkmode) :is(#dcui-sidebar .setting_list, #dcui-settings-modal) .checkbox input[type="checkbox"]:not(:checked) + .checkmark::after {
           display: none;
         }
-        html.dcfmk-enabled:has(#css-darkmode) :is(#dcfmk-sidebar .setting_list, #dcfmk-settings-modal) .checkbox input[type="checkbox"]:focus-visible + .checkmark {
+        html.dcui-enabled:has(#css-darkmode) :is(#dcui-sidebar .setting_list, #dcui-settings-modal) .checkbox input[type="checkbox"]:focus-visible + .checkmark {
           outline: 2px solid #aaa;
           outline-offset: 2px;
         }
-        html.dcfmk-enabled body,
-        html.dcfmk-enabled button,
-        html.dcfmk-enabled input,
-        html.dcfmk-enabled select,
-        html.dcfmk-enabled textarea {
-          font-family: var(--dcfmk-font);
+        html.dcui-enabled body,
+        html.dcui-enabled button,
+        html.dcui-enabled input,
+        html.dcui-enabled select,
+        html.dcui-enabled textarea {
+          font-family: var(--dcui-font);
         }
-        html.dcfmk-enabled body {
-          min-width: var(--dcfmk-page-width);
-          background: var(--dcfmk-color-surface);
-          color: var(--dcfmk-color-text);
+        html.dcui-enabled body {
+          min-width: var(--dcui-page-width);
+          background: var(--dcui-color-surface);
+          color: var(--dcui-color-text);
         }
-        html.dcfmk-enabled .ad_left_wing_list_top,
-        html.dcfmk-enabled .ad_left_wing_right_top,
-        html.dcfmk-enabled .ad_left_wing_list_top + div[style*="position:absolute"][style*="margin-left"],
-        html.dcfmk-enabled #ad-layer,
-        html.dcfmk-enabled #ad-pop-layer,
-        html.dcfmk-enabled #ad-layer-closer,
-        html.dcfmk-enabled #ad-pop-layer-closer,
-        html.dcfmk-enabled .banner_box:has(> script[src*="addc.dcinside.com/NetInsight/"]),
-        html.dcfmk-enabled .banner_box:has(> a[href*="addc.dcinside.com"][href*="/click/dcinside/pc/list@top_"]),
-        html.dcfmk-enabled .con_banner.writing_banbox,
-        html.dcfmk-enabled .stickyunit,
-        html.dcfmk-enabled #gfp_sf_align > #ad-element,
-        html.dcfmk-enabled #gfp_sf_align > .native_image_wrap,
-        html.dcfmk-enabled .cm_ad[data-ad-node] > .link_ad,
-        html.dcfmk-enabled .cm_ad[data-ad-node] > .icon_ad,
-        html.dcfmk-enabled .kakao_ad_area,
-        html.dcfmk-enabled .google-auto-placed,
-        html.dcfmk-enabled [id^="google_ads_"],
-        html.dcfmk-enabled [id^="div-gpt-ad"],
-        html.dcfmk-enabled [id^="criteo-"],
-        html.dcfmk-enabled ins.adsbygoogle,
-        html.dcfmk-enabled iframe[id^="ad_frame"],
-        html.dcfmk-enabled iframe[src*="ad.xc.netinsight.co.kr"],
-        html.dcfmk-enabled iframe[src*="ad.adnmore.co.kr"],
-        html.dcfmk-enabled iframe[src*="doubleclick.net"],
-        html.dcfmk-enabled iframe[src*="googlesyndication.com"] {
+        html.dcui-enabled .ad_left_wing_list_top,
+        html.dcui-enabled .ad_left_wing_right_top,
+        html.dcui-enabled .ad_left_wing_list_top + div[style*="position:absolute"][style*="margin-left"],
+        html.dcui-enabled #ad-layer,
+        html.dcui-enabled #ad-pop-layer,
+        html.dcui-enabled #ad-layer-closer,
+        html.dcui-enabled #ad-pop-layer-closer,
+        html.dcui-enabled .banner_box:has(> script[src*="addc.dcinside.com/NetInsight/"]),
+        html.dcui-enabled .banner_box:has(> a[href*="addc.dcinside.com"][href*="/click/dcinside/pc/list@top_"]),
+        html.dcui-enabled .con_banner.writing_banbox,
+        html.dcui-enabled .stickyunit,
+        html.dcui-enabled #gfp_sf_align > #ad-element,
+        html.dcui-enabled #gfp_sf_align > .native_image_wrap,
+        html.dcui-enabled .cm_ad[data-ad-node] > .link_ad,
+        html.dcui-enabled .cm_ad[data-ad-node] > .icon_ad,
+        html.dcui-enabled .kakao_ad_area,
+        html.dcui-enabled .google-auto-placed,
+        html.dcui-enabled [id^="google_ads_"],
+        html.dcui-enabled [id^="div-gpt-ad"],
+        html.dcui-enabled [id^="criteo-"],
+        html.dcui-enabled ins.adsbygoogle,
+        html.dcui-enabled iframe[id^="ad_frame"],
+        html.dcui-enabled iframe[src*="ad.xc.netinsight.co.kr"],
+        html.dcui-enabled iframe[src*="ad.adnmore.co.kr"],
+        html.dcui-enabled iframe[src*="doubleclick.net"],
+        html.dcui-enabled iframe[src*="googlesyndication.com"] {
           display: none !important;
         }
-        html.dcfmk-enabled table.gall_list tr.dcfmk-row-ad,
-        html.dcfmk-enabled table.gall_list tr[data-type="icon_ad"] {
+        html.dcui-enabled table.gall_list tr.dcui-row-ad,
+        html.dcui-enabled table.gall_list tr[data-type="icon_ad"] {
           display: none !important;
         }
-        html.dcfmk-enabled footer.dcfoot .dc_all {
+        html.dcui-enabled footer.dcfoot .dc_all {
           display: none !important;
         }
-        html.dcfmk-enabled .wrap_inner,
-        html.dcfmk-enabled #container {
-          width: var(--dcfmk-page-width);
+        html.dcui-enabled .wrap_inner,
+        html.dcui-enabled #container {
+          width: var(--dcui-page-width);
         }
-        html.dcfmk-enabled .page_head {
-          border-bottom-color: var(--dcfmk-color-border);
+        html.dcui-enabled .page_head {
+          border-bottom-color: var(--dcui-color-border);
         }
-        html.dcfmk-enabled .page_head h2 a {
-          color: var(--dcfmk-color-link);
+        html.dcui-enabled .page_head h2 a {
+          color: var(--dcui-color-link);
         }
-        html.dcfmk-enabled :focus-visible {
-          outline: 2px solid var(--dcfmk-color-accent);
+        html.dcui-enabled :focus-visible {
+          outline: 2px solid var(--dcui-color-accent);
           outline-offset: 2px;
         }
-        html.dcfmk-enabled .dcfmk-control-frame {
+        html.dcui-enabled .dcui-control-frame {
           box-sizing: border-box;
-          border: 1px solid var(--dcfmk-control-border) !important;
-          border-radius: var(--dcfmk-control-radius) !important;
-          background: var(--dcfmk-color-surface) !important;
-          box-shadow: var(--dcfmk-control-shadow) !important;
+          border: 1px solid var(--dcui-control-border) !important;
+          border-radius: var(--dcui-control-radius) !important;
+          background: var(--dcui-color-surface) !important;
+          box-shadow: var(--dcui-control-shadow) !important;
           transition: border-color 100ms ease, box-shadow 100ms ease;
         }
-        html.dcfmk-enabled .dcfmk-control-frame:hover {
-          border-color: var(--dcfmk-control-border-hover) !important;
+        html.dcui-enabled .dcui-control-frame:hover {
+          border-color: var(--dcui-control-border-hover) !important;
         }
-        html.dcfmk-enabled .dcfmk-control-frame:focus-visible,
-        html.dcfmk-enabled .dcfmk-control-frame:focus-within {
-          border-color: var(--dcfmk-control-border-focus) !important;
-          box-shadow: 0 0 0 1px var(--dcfmk-control-border-focus) !important;
+        html.dcui-enabled .dcui-control-frame:focus-visible,
+        html.dcui-enabled .dcui-control-frame:focus-within {
+          border-color: var(--dcui-control-border-focus) !important;
+          box-shadow: 0 0 0 1px var(--dcui-control-border-focus) !important;
           outline: 0;
         }
-        html.dcfmk-enabled .dcfmk-control-frame .dcfmk-control-addon {
-          border-left: 1px solid var(--dcfmk-control-addon-border) !important;
-          background: var(--dcfmk-control-addon-surface) !important;
+        html.dcui-enabled .dcui-control-frame .dcui-control-addon {
+          border-left: 1px solid var(--dcui-control-addon-border) !important;
+          background: var(--dcui-control-addon-surface) !important;
         }
-        html.dcfmk-enabled ::selection {
-          background: var(--dcfmk-color-selection);
-          color: var(--dcfmk-color-selection-text);
-        }
-        #dcfmk-theme-toggle {
+        #dcui-theme-toggle {
           position: static;
           box-sizing: border-box;
           display: inline-flex;
@@ -1535,68 +1529,68 @@
           border: 0;
           background: transparent;
           box-shadow: none;
-          color: var(--dcfmk-color-text-soft);
-          font: 400 11px/22px var(--dcfmk-font);
+          color: var(--dcui-color-text-soft);
+          font: 400 11px/22px var(--dcui-font);
           white-space: nowrap;
           cursor: pointer;
         }
-        #dcfmk-theme-toggle .dcfmk-theme-toggle-label {
+        #dcui-theme-toggle .dcui-theme-toggle-label {
           line-height: 22px;
         }
-        #dcfmk-theme-toggle .dcfmk-theme-toggle-track {
+        #dcui-theme-toggle .dcui-theme-toggle-track {
           position: relative;
           box-sizing: border-box;
           display: inline-block;
           width: 32px;
           height: 16px;
           flex: 0 0 32px;
-          border: 1px solid var(--dcfmk-color-border-control);
+          border: 1px solid var(--dcui-color-border-control);
           border-radius: 999px;
-          background: var(--dcfmk-color-toggle-track);
+          background: var(--dcui-color-toggle-track);
           transition: border-color 160ms ease, background-color 160ms ease;
         }
-        #dcfmk-theme-toggle .dcfmk-theme-toggle-thumb {
+        #dcui-theme-toggle .dcui-theme-toggle-thumb {
           position: absolute;
           top: 1px;
           left: 1px;
           width: 12px;
           height: 12px;
           border-radius: 50%;
-          background: var(--dcfmk-color-surface);
+          background: var(--dcui-color-surface);
           box-shadow: 0 1px 2px rgb(0 0 0 / 28%);
           transition: transform 160ms ease;
         }
-        #dcfmk-theme-toggle[aria-checked="true"] .dcfmk-theme-toggle-track {
-          border-color: var(--dcfmk-color-nav-light);
-          background: var(--dcfmk-color-nav-light);
+        #dcui-theme-toggle[aria-checked="true"] .dcui-theme-toggle-track {
+          border-color: var(--dcui-color-nav-light);
+          background: var(--dcui-color-nav-light);
         }
-        #dcfmk-theme-toggle[aria-checked="true"] .dcfmk-theme-toggle-thumb {
+        #dcui-theme-toggle[aria-checked="true"] .dcui-theme-toggle-thumb {
           transform: translateX(16px);
         }
-        #dcfmk-theme-toggle:hover .dcfmk-theme-toggle-label,
-        #dcfmk-theme-toggle:focus-visible .dcfmk-theme-toggle-label {
-          color: var(--dcfmk-color-link);
+        #dcui-theme-toggle:hover .dcui-theme-toggle-label,
+        #dcui-theme-toggle:focus-visible .dcui-theme-toggle-label {
+          color: var(--dcui-color-link);
         }
-        #dcfmk-theme-toggle:focus-visible {
+        #dcui-theme-toggle:focus-visible {
           border-radius: 3px;
-          outline: 2px solid var(--dcfmk-color-accent);
+          outline: 2px solid var(--dcui-color-accent);
           outline-offset: 2px;
         }
-        #dcfmk-native-theme-toggle-list {
+        #dcui-native-theme-toggle-list {
           margin: 0;
           overflow: visible;
         }
-        .area_links #dcfmk-native-theme-toggle-list > li:first-child::before,
-        .area_links #dcfmk-native-theme-toggle-list > li:last-child::before {
+        .area_links #dcui-native-theme-toggle-list > li:first-child::before,
+        .area_links #dcui-native-theme-toggle-list > li:last-child::before {
           display: inline;
           content: "|";
-          color: var(--dcfmk-color-border-strong);
+          color: var(--dcui-color-border-strong);
           font-size: 10px;
           line-height: 10px;
           padding: 0 5px 0 4px;
           vertical-align: 1px;
         }
-        .dcheader .area_links #dcfmk-theme-toggle {
+        .dcheader .area_links #dcui-theme-toggle {
           position: relative;
           top: -1px;
           height: 18px;
@@ -1605,18 +1599,18 @@
           line-height: 18px;
           vertical-align: top;
         }
-        .dcheader .area_links #dcfmk-theme-toggle .dcfmk-theme-toggle-label {
+        .dcheader .area_links #dcui-theme-toggle .dcui-theme-toggle-label {
           line-height: 18px;
         }
-        body > #dcfmk-theme-toggle {
+        body > #dcui-theme-toggle {
           position: fixed;
           z-index: 2147483646;
           top: 8px;
           right: 8px;
           padding: 2px 6px;
-          border: 1px solid var(--dcfmk-color-border);
+          border: 1px solid var(--dcui-color-border);
           border-radius: 3px;
-          background: var(--dcfmk-color-surface);
+          background: var(--dcui-color-surface);
           box-shadow: 0 2px 6px rgb(0 0 0 / 18%);
         }
       `;
@@ -1635,29 +1629,29 @@
 
     mount(settingList) {
       const list = settingList?.querySelector(".inner > ul, ul");
-      if (!list || list.querySelector(".dcfmk-custom-setting")) return;
+      if (!list || list.querySelector(".dcui-custom-setting")) return;
 
       const controls = [
         {
-          id: "dcfmk-hide-featured",
+          id: "dcui-hide-featured",
           label: "실베·최신 개념글 숨김",
           checked: this.isFeaturedHidden(),
           change: (checked) => this.setFeaturedHidden(checked),
         },
         {
-          id: "dcfmk-hide-gallery-cover",
+          id: "dcui-hide-gallery-cover",
           label: "대문 이미지 숨김",
           checked: GM_getValue(GALLERY_COVER_HIDDEN_KEY, false) === true,
           change: (checked) => this.setGalleryCoverHidden(checked),
         },
         {
-          id: "dcfmk-show-user-identifier",
+          id: "dcui-show-user-identifier",
           label: "이용자 식별 코드 표시",
           checked: GM_getValue(USER_IDENTIFIER_VISIBLE_KEY, false) === true,
           change: (checked) => this.setUserIdentifierVisible(checked),
         },
         {
-          id: "dcfmk-enable-concept-alarm",
+          id: "dcui-enable-concept-alarm",
           label: "개념글 알림",
           checked: ConceptAlarmController.isEnabled(),
           change: (checked) => ConceptAlarmController.setEnabled(checked),
@@ -1667,7 +1661,7 @@
       const fragment = document.createDocumentFragment();
       for (const control of controls) {
         const item = document.createElement("li");
-        item.className = "dcfmk-custom-setting";
+        item.className = "dcui-custom-setting";
         item.innerHTML = `
           <span class="checkbox">
             <label for="${control.id}">${control.label}</label>
@@ -1685,32 +1679,32 @@
     },
 
     isFeaturedHidden() {
-      return GM_getValue("dcfmk:featured-hidden",
-        GM_getValue("dcfmk:featured-realtime-collapsed", false) === true
-          && GM_getValue("dcfmk:featured-concept-collapsed", false) === true) === true;
+      return GM_getValue("dcui:featured-hidden",
+        GM_getValue("dcui:featured-realtime-collapsed", false) === true
+          && GM_getValue("dcui:featured-concept-collapsed", false) === true) === true;
     },
 
     setFeaturedHidden(hidden, persist = true) {
       const value = Boolean(hidden);
-      if (persist) GM_setValue("dcfmk:featured-hidden", value);
-      document.documentElement.classList.toggle("dcfmk-featured-hidden", value);
-      const input = document.getElementById("dcfmk-hide-featured");
+      if (persist) GM_setValue("dcui:featured-hidden", value);
+      document.documentElement.classList.toggle("dcui-featured-hidden", value);
+      const input = document.getElementById("dcui-hide-featured");
       if (input) input.checked = value;
     },
 
     setGalleryCoverHidden(hidden, persist = true) {
       const value = Boolean(hidden);
       if (persist) GM_setValue(GALLERY_COVER_HIDDEN_KEY, value);
-      document.documentElement.classList.toggle("dcfmk-gallery-cover-hidden", value);
-      const input = document.getElementById("dcfmk-hide-gallery-cover");
+      document.documentElement.classList.toggle("dcui-gallery-cover-hidden", value);
+      const input = document.getElementById("dcui-hide-gallery-cover");
       if (input) input.checked = value;
     },
 
     setUserIdentifierVisible(visible, persist = true) {
       const value = Boolean(visible);
       if (persist) GM_setValue(USER_IDENTIFIER_VISIBLE_KEY, value);
-      document.documentElement.classList.toggle("dcfmk-user-identifier-visible", value);
-      const input = document.getElementById("dcfmk-show-user-identifier");
+      document.documentElement.classList.toggle("dcui-user-identifier-visible", value);
+      const input = document.getElementById("dcui-show-user-identifier");
       if (input) input.checked = value;
       if (value) {
         this.decorateWriters(document);
@@ -1718,7 +1712,7 @@
       } else {
         this.writerObserver?.disconnect();
         this.writerObserver = null;
-        document.querySelectorAll(".dcfmk-user-identifier").forEach((node) => node.remove());
+        document.querySelectorAll(".dcui-user-identifier").forEach((node) => node.remove());
       }
     },
 
@@ -1730,7 +1724,7 @@
     },
 
     decorateWriter(writer) {
-      const existing = writer.querySelector(":scope .dcfmk-user-identifier");
+      const existing = writer.querySelector(":scope .dcui-user-identifier");
       const uid = cleanText(writer.dataset.uid);
       if (!uid || writer.hasAttribute("user_name")) {
         existing?.remove();
@@ -1741,13 +1735,19 @@
         const title = `식별 코드: ${uid}`;
         if (existing.textContent !== label) existing.textContent = label;
         if (existing.title !== title) existing.title = title;
+        existing.setAttribute("role", "button");
+        existing.setAttribute("aria-label", `식별 코드 ${uid} 글쓴이 메뉴 열기`);
+        existing.tabIndex = 0;
         return;
       }
 
       const identifier = document.createElement("span");
-      identifier.className = "dcfmk-user-identifier";
+      identifier.className = "dcui-user-identifier";
       identifier.textContent = `(${uid})`;
       identifier.title = `식별 코드: ${uid}`;
+      identifier.setAttribute("role", "button");
+      identifier.setAttribute("aria-label", `식별 코드 ${uid} 글쓴이 메뉴 열기`);
+      identifier.tabIndex = 0;
       const container = writer.querySelector(".addbox")
         || writer.querySelector(".fl > span")
         || writer;
@@ -1780,27 +1780,27 @@
 
   const GalleryStripView = Object.freeze({
     mount(siteRoot, shell, beforeNode) {
-      if (document.getElementById("dcfmk-gallery-strip")) return;
+      if (document.getElementById("dcui-gallery-strip")) return;
 
       const strip = document.createElement("section");
-      strip.id = "dcfmk-gallery-strip";
+      strip.id = "dcui-gallery-strip";
       strip.setAttribute("aria-label", "내 갤러리 바로가기");
       strip.innerHTML = `
-        <div class="dcfmk-gallery-strip-inner">
-          <div class="dcfmk-gallery-strip-viewport" data-role="galleryStripViewport">
-            <div class="dcfmk-gallery-strip-track">
-              <div class="dcfmk-gallery-strip-group dcfmk-favorites" data-role="favoriteGalleries"></div>
-              <div class="dcfmk-gallery-strip-group dcfmk-recents" data-role="recentGalleries"></div>
+        <div class="dcui-gallery-strip-inner">
+          <div class="dcui-gallery-strip-viewport" data-role="galleryStripViewport">
+            <div class="dcui-gallery-strip-track">
+              <div class="dcui-gallery-strip-group dcui-favorites" data-role="favoriteGalleries"></div>
+              <div class="dcui-gallery-strip-group dcui-recents" data-role="recentGalleries"></div>
             </div>
           </div>
-          <button type="button" class="dcfmk-gallery-strip-expand" data-role="galleryStripExpand" aria-expanded="false" aria-label="최근 방문 갤러리 펼치기">
-            <span class="dcfmk-gallery-strip-expand-icon" aria-hidden="true"></span>
+          <button type="button" class="dcui-gallery-strip-expand" data-role="galleryStripExpand" aria-expanded="false" aria-label="최근 방문 갤러리 펼치기">
+            <span class="dcui-gallery-strip-expand-icon" aria-hidden="true"></span>
           </button>
         </div>
-        <div class="dcfmk-gallery-strip-expanded" data-role="galleryStripExpanded" hidden>
-          <div class="dcfmk-gallery-strip-expanded-list" data-role="galleryStripExpandedList"></div>
-          <div class="dcfmk-gallery-strip-footer">
-            <span class="dcfmk-gallery-strip-footer-label">최근방문:</span>
+        <div class="dcui-gallery-strip-expanded" data-role="galleryStripExpanded" hidden>
+          <div class="dcui-gallery-strip-expanded-list" data-role="galleryStripExpandedList"></div>
+          <div class="dcui-gallery-strip-footer">
+            <span class="dcui-gallery-strip-footer-label">최근방문:</span>
             <button type="button" data-role="galleryStripClear">전체 삭제</button>
             <button type="button" data-role="galleryStripDeleteMode" aria-pressed="false">개별 삭제</button>
           </div>
@@ -1839,18 +1839,18 @@
       ]);
       const favoriteKeys = new Set(favoriteLinks.map((item) => this.galleryKey(item.href)).filter(Boolean));
       const uniqueRecentLinks = recentLinks.filter((item) => !favoriteKeys.has(this.galleryKey(item.href)));
-      strip.__dcfmkGalleryData = { favoriteLinks, recentLinks: uniqueRecentLinks };
-      document.dispatchEvent(new CustomEvent("dcfmk:favorites-updated", {
+      strip.__dcuiGalleryData = { favoriteLinks, recentLinks: uniqueRecentLinks };
+      document.dispatchEvent(new CustomEvent("dcui:favorites-updated", {
         detail: { favoriteLinks },
       }));
-      const track = strip.querySelector(".dcfmk-gallery-strip-track");
+      const track = strip.querySelector(".dcui-gallery-strip-track");
       let favoriteGroup = strip.querySelector('[data-role="favoriteGalleries"]');
       if (favoriteLinks.length === 0) {
         favoriteGroup?.remove();
       } else {
         if (!favoriteGroup && track) {
           favoriteGroup = document.createElement("div");
-          favoriteGroup.className = "dcfmk-gallery-strip-group dcfmk-favorites";
+          favoriteGroup.className = "dcui-gallery-strip-group dcui-favorites";
           favoriteGroup.dataset.role = "favoriteGalleries";
           track.prepend(favoriteGroup);
         }
@@ -1938,7 +1938,7 @@
       if (links.length === 0) {
         if (!emptyLabel) return;
         const empty = document.createElement("span");
-        empty.className = "dcfmk-gallery-strip-empty";
+        empty.className = "dcui-gallery-strip-empty";
         empty.textContent = emptyLabel;
         container.appendChild(empty);
         return;
@@ -1952,12 +1952,12 @@
           continue;
         }
         const wrapper = document.createElement("span");
-        wrapper.className = "dcfmk-gallery-strip-item";
+        wrapper.className = "dcui-gallery-strip-item";
         wrapper.appendChild(link);
         if (item.deleteId) {
           const remove = document.createElement("button");
           remove.type = "button";
-          remove.className = "dcfmk-gallery-strip-delete";
+          remove.className = "dcui-gallery-strip-delete";
           remove.dataset.id = item.deleteId;
           remove.dataset.gtype = item.deleteType;
           remove.setAttribute("aria-label", `${item.name} 최근 방문 삭제`);
@@ -1975,7 +1975,7 @@
 
       const appendItem = (item, favorite) => {
         const wrapper = document.createElement("div");
-        wrapper.className = `dcfmk-gallery-strip-expanded-item ${favorite ? "dcfmk-favorite" : "dcfmk-recent"}`;
+        wrapper.className = `dcui-gallery-strip-expanded-item ${favorite ? "dcui-favorite" : "dcui-recent"}`;
         const link = document.createElement("a");
         link.href = item.href;
         link.textContent = item.name;
@@ -1983,7 +1983,7 @@
         if (!favorite && item.deleteId) {
           const remove = document.createElement("button");
           remove.type = "button";
-          remove.className = "dcfmk-gallery-strip-delete";
+          remove.className = "dcui-gallery-strip-delete";
           remove.dataset.id = item.deleteId;
           remove.dataset.gtype = item.deleteType;
           remove.setAttribute("aria-label", `${item.name} 최근 방문 삭제`);
@@ -1995,16 +1995,16 @@
 
       favoriteLinks.forEach((item) => appendItem(item, true));
       recentLinks.forEach((item) => appendItem(item, false));
-      list.parentElement?.classList.toggle("dcfmk-no-expanded-items", list.childElementCount === 0);
+      list.parentElement?.classList.toggle("dcui-no-expanded-items", list.childElementCount === 0);
     },
 
     renderExpandedRemainder(strip) {
-      const data = strip.__dcfmkGalleryData || { favoriteLinks: [], recentLinks: [] };
+      const data = strip.__dcuiGalleryData || { favoriteLinks: [], recentLinks: [] };
       const viewport = strip.querySelector('[data-role="galleryStripViewport"]');
       const viewportRect = viewport?.getBoundingClientRect();
       const visibleKeys = new Set();
       if (viewportRect) {
-        for (const link of viewport.querySelectorAll(".dcfmk-gallery-strip-group a")) {
+        for (const link of viewport.querySelectorAll(".dcui-gallery-strip-group a")) {
           const rect = link.getBoundingClientRect();
           if (rect.right <= viewportRect.left || rect.left >= viewportRect.right) continue;
           const key = this.galleryKey(link.href);
@@ -2024,21 +2024,21 @@
       if (!expanded || !expandButton) return;
 
       const setExpanded = (open) => {
-        strip.classList.toggle("dcfmk-expanded", open);
+        strip.classList.toggle("dcui-expanded", open);
         expanded.hidden = !open;
         expandButton.setAttribute("aria-expanded", String(open));
         expandButton.setAttribute("aria-label", `최근 방문 갤러리 ${open ? "닫기" : "펼치기"}`);
         if (open) this.renderExpandedRemainder(strip);
       };
-      expandButton.addEventListener("click", () => setExpanded(!strip.classList.contains("dcfmk-expanded")));
+      expandButton.addEventListener("click", () => setExpanded(!strip.classList.contains("dcui-expanded")));
       deleteModeButton?.addEventListener("click", () => {
-        const active = !strip.classList.contains("dcfmk-delete-mode");
-        strip.classList.toggle("dcfmk-delete-mode", active);
-        expanded.classList.toggle("dcfmk-delete-mode", active);
+        const active = !strip.classList.contains("dcui-delete-mode");
+        strip.classList.toggle("dcui-delete-mode", active);
+        expanded.classList.toggle("dcui-delete-mode", active);
         deleteModeButton.setAttribute("aria-pressed", String(active));
       });
       strip.addEventListener("click", (event) => {
-        const remove = event.target.closest(".dcfmk-gallery-strip-delete");
+        const remove = event.target.closest(".dcui-gallery-strip-delete");
         if (!remove) return;
         const original = Array.from(document.querySelectorAll("#visit_history .btn_visit_del[data-id]"))
           .find((button) => button.dataset.id === remove.dataset.id
@@ -2049,7 +2049,7 @@
         document.querySelector("#visit_history .visit_tablist .list_modi")?.click();
       });
       document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" && strip.classList.contains("dcfmk-expanded")) setExpanded(false);
+        if (event.key === "Escape" && strip.classList.contains("dcui-expanded")) setExpanded(false);
       });
     },
 
@@ -2066,7 +2066,7 @@
         if (activePointerId === null || (event.pointerId !== undefined && event.pointerId !== activePointerId)) return;
         if (viewport.hasPointerCapture?.(activePointerId)) viewport.releasePointerCapture(activePointerId);
         activePointerId = null;
-        viewport.classList.remove("dcfmk-dragging");
+        viewport.classList.remove("dcui-dragging");
         this.updateControls(strip);
         window.setTimeout(() => {
           suppressClick = false;
@@ -2074,7 +2074,7 @@
       };
 
       viewport.addEventListener("pointerdown", (event) => {
-        if (strip.classList.contains("dcfmk-expanded") || !event.isPrimary || event.button !== 0) return;
+        if (strip.classList.contains("dcui-expanded") || !event.isPrimary || event.button !== 0) return;
         activePointerId = event.pointerId;
         startX = event.clientX;
         startScrollLeft = viewport.scrollLeft;
@@ -2083,7 +2083,7 @@
       });
       viewport.addEventListener("pointermove", (event) => {
         if (event.pointerId !== activePointerId) return;
-        if (strip.classList.contains("dcfmk-expanded")) {
+        if (strip.classList.contains("dcui-expanded")) {
           finishDrag(event);
           return;
         }
@@ -2091,7 +2091,7 @@
         if (!dragged && Math.abs(distance) > 7) {
           dragged = true;
           suppressClick = true;
-          viewport.classList.add("dcfmk-dragging");
+          viewport.classList.add("dcui-dragging");
           viewport.setPointerCapture?.(activePointerId);
         }
         if (!dragged) return;
@@ -2109,43 +2109,43 @@
       viewport.addEventListener("dragstart", (event) => event.preventDefault());
       viewport.addEventListener("scroll", () => {
         this.updateControls(strip);
-        if (strip.classList.contains("dcfmk-expanded")) this.renderExpandedRemainder(strip);
+        if (strip.classList.contains("dcui-expanded")) this.renderExpandedRemainder(strip);
       }, { passive: true });
     },
 
     updateControls(strip) {
       const viewport = strip.querySelector('[data-role="galleryStripViewport"]');
       if (!viewport) return;
-      viewport.classList.toggle("dcfmk-can-scroll", viewport.scrollWidth > viewport.clientWidth + 1);
+      viewport.classList.toggle("dcui-can-scroll", viewport.scrollWidth > viewport.clientWidth + 1);
     },
 
     injectStyle() {
-      if (document.getElementById("dcfmk-gallery-strip-style")) return;
+      if (document.getElementById("dcui-gallery-strip-style")) return;
       const style = document.createElement("style");
-      style.id = "dcfmk-gallery-strip-style";
+      style.id = "dcui-gallery-strip-style";
       style.textContent = `
-        #dcfmk-gallery-strip {
+        #dcui-gallery-strip {
           display: none;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip {
+        html.dcui-enabled #dcui-gallery-strip {
           display: block;
           border-bottom: 0;
           background: transparent;
-          color: var(--dcfmk-color-text-soft);
-          font: 12px/1.4 var(--dcfmk-font);
+          color: var(--dcui-color-text-soft);
+          font: 12px/1.4 var(--dcui-font);
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-inner {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-inner {
           display: flex;
           box-sizing: border-box;
-          width: var(--dcfmk-page-width);
+          width: var(--dcui-page-width);
           height: 36px;
           margin: 0 auto;
           padding: 5px;
           align-items: center;
-          border-bottom: 1px solid var(--dcfmk-color-border-strong);
-          background: var(--dcfmk-color-surface-notice);
+          border-bottom: 1px solid var(--dcui-color-border-strong);
+          background: var(--dcui-color-surface-notice);
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-viewport {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-viewport {
           flex: 1;
           min-width: 0;
           height: 26px;
@@ -2156,7 +2156,7 @@
           user-select: none;
           scrollbar-width: none;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expand {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-expand {
           display: inline-flex;
           flex: 0 0 26px;
           box-sizing: border-box;
@@ -2166,18 +2166,18 @@
           justify-content: center;
           margin-left: 5px;
           padding: 0;
-          border: 1px solid var(--dcfmk-color-border-strong);
+          border: 1px solid var(--dcui-color-border-strong);
           border-radius: 2px;
-          background: linear-gradient(var(--dcfmk-color-control-gradient-top), var(--dcfmk-color-control-gradient-bottom));
-          color: var(--dcfmk-color-text-soft);
-          font: 700 11px/24px var(--dcfmk-font);
+          background: linear-gradient(var(--dcui-color-control-gradient-top), var(--dcui-color-control-gradient-bottom));
+          color: var(--dcui-color-text-soft);
+          font: 700 11px/24px var(--dcui-font);
           cursor: pointer;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expand:hover {
-          border-color: var(--dcfmk-control-border-hover);
-          color: var(--dcfmk-color-nav);
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-expand:hover {
+          border-color: var(--dcui-control-border-hover);
+          color: var(--dcui-color-nav);
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expand-icon {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-expand-icon {
           display: inline-block;
           width: 6px;
           height: 6px;
@@ -2185,20 +2185,20 @@
           border-bottom: 1px solid currentColor;
           transform: translateY(-2px) rotate(45deg);
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip.dcfmk-expanded .dcfmk-gallery-strip-expand-icon {
+        html.dcui-enabled #dcui-gallery-strip.dcui-expanded .dcui-gallery-strip-expand-icon {
           transform: translateY(2px) rotate(225deg);
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-viewport::-webkit-scrollbar {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-viewport::-webkit-scrollbar {
           display: none;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-viewport.dcfmk-dragging {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-viewport.dcui-dragging {
           cursor: grabbing;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip.dcfmk-expanded .dcfmk-gallery-strip-viewport,
-        html.dcfmk-enabled #dcfmk-gallery-strip.dcfmk-expanded .dcfmk-gallery-strip-viewport.dcfmk-dragging {
+        html.dcui-enabled #dcui-gallery-strip.dcui-expanded .dcui-gallery-strip-viewport,
+        html.dcui-enabled #dcui-gallery-strip.dcui-expanded .dcui-gallery-strip-viewport.dcui-dragging {
           cursor: default;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-track {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-track {
           display: flex;
           width: max-content;
           min-width: 100%;
@@ -2206,27 +2206,27 @@
           gap: 5px;
           align-items: stretch;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-group {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-group {
           display: flex;
           flex: 0 0 auto;
           gap: 5px;
           align-items: center;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-favorites {
+        html.dcui-enabled #dcui-gallery-strip .dcui-favorites {
           background: transparent;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-recents {
+        html.dcui-enabled #dcui-gallery-strip .dcui-recents {
           border-left: 0;
           background: transparent;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-group a {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-group a {
           flex: 0 0 auto;
           box-sizing: border-box;
           height: 26px;
           padding: 7px;
           border-radius: 5px;
-          background: var(--dcfmk-color-surface-strong);
-          color: var(--dcfmk-color-text-soft);
+          background: var(--dcui-color-surface-strong);
+          color: var(--dcui-color-text-soft);
           font-size: 12px;
           font-weight: 700;
           line-height: 12px;
@@ -2234,7 +2234,7 @@
           white-space: nowrap;
           -webkit-user-drag: none;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-item {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-item {
           display: inline-flex;
           flex: 0 0 auto;
           height: 26px;
@@ -2242,135 +2242,135 @@
           overflow: hidden;
           border-radius: 5px;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip.dcfmk-delete-mode .dcfmk-gallery-strip-item a {
+        html.dcui-enabled #dcui-gallery-strip.dcui-delete-mode .dcui-gallery-strip-item a {
           border-radius: 5px 0 0 5px;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-favorites a {
-          background: var(--dcfmk-color-nav-light);
-          color: var(--dcfmk-color-on-accent);
+        html.dcui-enabled #dcui-gallery-strip .dcui-favorites a {
+          background: var(--dcui-color-nav-light);
+          color: var(--dcui-color-on-accent);
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-group a:hover {
-          background: var(--dcfmk-color-control-hover);
-          color: var(--dcfmk-color-text-strong);
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-group a:hover {
+          background: var(--dcui-color-control-hover);
+          color: var(--dcui-color-text-strong);
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-favorites a:hover {
-          background: var(--dcfmk-color-nav);
+        html.dcui-enabled #dcui-gallery-strip .dcui-favorites a:hover {
+          background: var(--dcui-color-nav);
           color: #ffea00;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-empty {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-empty {
           display: block;
           box-sizing: border-box;
           height: 26px;
           padding: 7px;
           border-radius: 5px;
-          background: var(--dcfmk-color-surface-strong);
-          color: var(--dcfmk-color-faint);
+          background: var(--dcui-color-surface-strong);
+          color: var(--dcui-color-faint);
           font-size: 12px;
           line-height: 12px;
           white-space: nowrap;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expanded {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-expanded {
           box-sizing: border-box;
-          width: var(--dcfmk-page-width);
+          width: var(--dcui-page-width);
           margin: 0 auto;
           padding: 5px 5px 0;
-          border-bottom: 1px solid var(--dcfmk-color-border-strong);
-          background: var(--dcfmk-color-surface-notice);
+          border-bottom: 1px solid var(--dcui-color-border-strong);
+          background: var(--dcui-color-surface-notice);
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expanded[hidden] {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-expanded[hidden] {
           display: none !important;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expanded-list {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-expanded-list {
           display: flex;
           flex-wrap: wrap;
           gap: 5px;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expanded-list:empty {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-expanded-list:empty {
           display: none;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expanded.dcfmk-no-expanded-items {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-expanded.dcui-no-expanded-items {
           padding-top: 0;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expanded-item {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-expanded-item {
           display: inline-flex;
           box-sizing: border-box;
           height: 26px;
           align-items: stretch;
           overflow: visible;
           border-radius: 5px;
-          background: var(--dcfmk-color-surface-strong);
+          background: var(--dcui-color-surface-strong);
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expanded-item.dcfmk-favorite {
-          background: var(--dcfmk-color-nav-light);
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-expanded-item.dcui-favorite {
+          background: var(--dcui-color-nav-light);
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expanded-item a {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-expanded-item a {
           display: inline-flex;
           align-items: center;
           padding: 0 7px;
-          color: var(--dcfmk-color-text-soft);
+          color: var(--dcui-color-text-soft);
           font-size: 12px;
           font-weight: 700;
           line-height: 26px;
           text-decoration: none;
           white-space: nowrap;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expanded-item.dcfmk-favorite a {
-          color: var(--dcfmk-color-on-accent);
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-expanded-item.dcui-favorite a {
+          color: var(--dcui-color-on-accent);
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expanded-item:hover {
-          background: var(--dcfmk-color-control-hover);
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-expanded-item:hover {
+          background: var(--dcui-color-control-hover);
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expanded-item.dcfmk-favorite:hover {
-          background: var(--dcfmk-color-nav);
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-expanded-item.dcui-favorite:hover {
+          background: var(--dcui-color-nav);
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-delete {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-delete {
           display: none;
           width: 22px;
           padding: 0;
           border: 0;
-          border-left: 1px solid var(--dcfmk-color-border-strong);
-          background: var(--dcfmk-color-control-active);
-          color: var(--dcfmk-color-muted);
+          border-left: 1px solid var(--dcui-color-border-strong);
+          background: var(--dcui-color-control-active);
+          color: var(--dcui-color-muted);
           font: 700 16px/24px Arial, sans-serif;
           cursor: pointer;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip.dcfmk-delete-mode .dcfmk-gallery-strip-delete,
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-delete-mode .dcfmk-gallery-strip-delete {
+        html.dcui-enabled #dcui-gallery-strip.dcui-delete-mode .dcui-gallery-strip-delete,
+        html.dcui-enabled #dcui-gallery-strip .dcui-delete-mode .dcui-gallery-strip-delete {
           display: block;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-delete:hover {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-delete:hover {
           background: #d9534f;
-          color: var(--dcfmk-color-on-accent);
+          color: var(--dcui-color-on-accent);
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expanded-empty {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-expanded-empty {
           padding: 5px 7px;
-          color: var(--dcfmk-color-faint);
+          color: var(--dcui-color-faint);
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-footer {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-footer {
           display: flex;
           height: 29px;
           align-items: center;
           gap: 10px;
           margin-top: 5px;
-          border-top: 1px solid var(--dcfmk-color-border);
-          color: var(--dcfmk-color-muted);
+          border-top: 1px solid var(--dcui-color-border);
+          color: var(--dcui-color-muted);
           font-size: 11px;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-expanded-list:empty + .dcfmk-gallery-strip-footer {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-expanded-list:empty + .dcui-gallery-strip-footer {
           margin-top: 0;
           border-top: 0;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-footer button {
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-footer button {
           padding: 0;
           border: 0;
           background: transparent;
-          color: var(--dcfmk-color-muted);
-          font: 11px/28px var(--dcfmk-font);
+          color: var(--dcui-color-muted);
+          font: 11px/28px var(--dcui-font);
           cursor: pointer;
         }
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-footer button:hover,
-        html.dcfmk-enabled #dcfmk-gallery-strip .dcfmk-gallery-strip-footer button[aria-pressed="true"] {
-          color: var(--dcfmk-color-nav);
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-footer button:hover,
+        html.dcui-enabled #dcui-gallery-strip .dcui-gallery-strip-footer button[aria-pressed="true"] {
+          color: var(--dcui-color-nav);
           text-decoration: underline;
         }
       `;
@@ -2401,9 +2401,9 @@
 
     syncDocumentState() {
       const root = document.documentElement;
-      root.dataset.dcfmkConceptAlarmEnabled = String(this.isEnabled());
-      root.dataset.dcfmkConceptAlarmScheduled = String(conceptAlarmTimer !== 0);
-      root.dataset.dcfmkConceptAlarmRunning = String(conceptAlarmRunning);
+      root.dataset.dcuiConceptAlarmEnabled = String(this.isEnabled());
+      root.dataset.dcuiConceptAlarmScheduled = String(conceptAlarmTimer !== 0);
+      root.dataset.dcuiConceptAlarmRunning = String(conceptAlarmRunning);
     },
 
     clearSchedule() {
@@ -2415,7 +2415,7 @@
     setEnabled(enabled) {
       const value = Boolean(enabled);
       GM_setValue(CONCEPT_ALARM_ENABLED_KEY, value);
-      const input = document.getElementById("dcfmk-enable-concept-alarm");
+      const input = document.getElementById("dcui-enable-concept-alarm");
       if (input) input.checked = value;
       if (value) AutomatedRequestCoordinator.resume();
       this.scheduleDue(conceptAlarmContext);
@@ -2674,7 +2674,7 @@
     publishFeed(context, posts) {
       const feed = { savedAt: Date.now(), posts: posts.slice(0, 12) };
       GM_setValue(this.feedCacheKey(context), feed);
-      document.dispatchEvent(new CustomEvent("dcfmk:concept-feed", {
+      document.dispatchEvent(new CustomEvent("dcui:concept-feed", {
         detail: {
           galleryKey: context.galleryKey,
           posts: feed.posts,
@@ -2687,7 +2687,7 @@
     publishCachedFeed(context) {
       const cached = this.freshCachedFeed(context);
       if (!cached) return null;
-      document.dispatchEvent(new CustomEvent("dcfmk:concept-feed", {
+      document.dispatchEvent(new CustomEvent("dcui:concept-feed", {
         detail: {
           galleryKey: context.galleryKey,
           posts: cached.posts,
@@ -2698,7 +2698,7 @@
     },
 
     publishFeedError(context) {
-      document.dispatchEvent(new CustomEvent("dcfmk:concept-feed", {
+      document.dispatchEvent(new CustomEvent("dcui:concept-feed", {
         detail: { galleryKey: context.galleryKey, posts: [], status: "error" },
       }));
     },
@@ -2921,10 +2921,10 @@
           max-width: 100% !important;
           box-sizing: border-box;
           overflow: hidden;
-          border: 1px solid var(--dcfmk-color-border-accent);
+          border: 1px solid var(--dcui-color-border-accent);
           padding: 10px 12px;
-          background: var(--dcfmk-color-surface);
-          color: var(--dcfmk-color-text-strong);
+          background: var(--dcui-color-surface);
+          color: var(--dcui-color-text-strong);
           box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
           text-align: left;
           text-decoration: none;
@@ -2939,7 +2939,7 @@
         }
         #dc-concept-alarm-stack strong {
           margin-bottom: 0;
-          color: var(--dcfmk-color-nav);
+          color: var(--dcui-color-nav);
           font-size: 12px;
         }
         #dc-concept-alarm-stack span {
@@ -2957,23 +2957,23 @@
       const conceptActive = new URL(location.href).searchParams.get("exception_mode") === "recommend";
       if (context.pageType === "list" && !context.isRealtimeBest) this.injectStyle();
       if (context.pageType !== "list" || conceptActive || context.isRealtimeBest) {
-        document.getElementById("dcfmk-featured-posts")?.remove();
+        document.getElementById("dcui-featured-posts")?.remove();
         return null;
       }
-      let section = document.getElementById("dcfmk-featured-posts");
+      let section = document.getElementById("dcui-featured-posts");
       if (section) return section;
 
       section = document.createElement("section");
-      section.id = "dcfmk-featured-posts";
+      section.id = "dcui-featured-posts";
       section.setAttribute("aria-label", "실시간 베스트와 최신 개념글");
       section.innerHTML = `
-        <div class="dcfmk-featured-column dcfmk-featured-realtime">
+        <div class="dcui-featured-column dcui-featured-realtime">
           <h3><a data-role="realtimeHeading">실시간 베스트</a></h3>
           <ul data-role="realtimeList"></ul>
         </div>
-        <div class="dcfmk-featured-column dcfmk-featured-concept">
+        <div class="dcui-featured-column dcui-featured-concept">
           <h3><a data-role="conceptHeading"></a></h3>
-          <ul data-role="conceptList"><li class="dcfmk-featured-status">개념글을 불러오는 중입니다.</li></ul>
+          <ul data-role="conceptList"><li class="dcui-featured-status">개념글을 불러오는 중입니다.</li></ul>
         </div>
       `;
       this.renderRealtime(section);
@@ -2991,14 +2991,14 @@
           return false;
         }
         conceptRendered = true;
-        document.removeEventListener("dcfmk:concept-feed", onConceptFeed);
+        document.removeEventListener("dcui:concept-feed", onConceptFeed);
         return true;
       };
       const onConceptFeed = (event) => {
         if (event.detail?.galleryKey !== context.galleryKey) return;
         renderConceptOnce(event.detail.posts || [], event.detail.status);
       };
-      document.addEventListener("dcfmk:concept-feed", onConceptFeed);
+      document.addEventListener("dcui:concept-feed", onConceptFeed);
       const cached = ConceptAlarmController.freshCachedFeed(context);
       if (cached) renderConceptOnce(cached.posts, cached.posts.length ? "ready" : "empty");
       ConceptAlarmController.loadFeed(context);
@@ -3046,7 +3046,7 @@
       for (const post of feed?.links || []) {
         const item = document.createElement("li");
         const link = document.createElement("a");
-        link.className = "dcfmk-featured-title";
+        link.className = "dcui-featured-title";
         link.href = post.href;
         link.textContent = post.title;
         link.title = post.title;
@@ -3055,7 +3055,7 @@
       }
       if (!list.childElementCount) {
         const empty = document.createElement("li");
-        empty.className = "dcfmk-featured-status";
+        empty.className = "dcui-featured-status";
         empty.textContent = "표시할 실시간 베스트가 없습니다.";
         list.appendChild(empty);
       }
@@ -3068,13 +3068,13 @@
       for (const post of posts.slice(0, this.maxItems)) {
         const item = document.createElement("li");
         const title = document.createElement("a");
-        title.className = "dcfmk-featured-title";
+        title.className = "dcui-featured-title";
         title.href = post.url;
         title.textContent = post.title;
         title.title = post.title;
 
         const comments = document.createElement("a");
-        comments.className = "dcfmk-featured-comments";
+        comments.className = "dcui-featured-comments";
         const commentUrl = new URL(post.url, location.href);
         commentUrl.hash = "focus_cmt";
         comments.href = commentUrl.href;
@@ -3082,7 +3082,7 @@
         comments.setAttribute("aria-label", `댓글 ${post.commentCount || "0"}개`);
 
         const recommends = document.createElement("span");
-        recommends.className = "dcfmk-featured-recommends";
+        recommends.className = "dcui-featured-recommends";
         recommends.textContent = String(post.recommendCount || "0");
         recommends.setAttribute("aria-label", `추천 ${post.recommendCount || "0"}개`);
         item.append(title, comments, recommends);
@@ -3097,18 +3097,18 @@
       const list = section.querySelector('[data-role="conceptList"]');
       if (!list) return;
       const status = document.createElement("li");
-      status.className = "dcfmk-featured-status";
+      status.className = "dcui-featured-status";
       status.textContent = message;
       list.replaceChildren(status);
     },
 
     injectStyle() {
-      if (document.getElementById("dcfmk-featured-posts-style")) return;
+      if (document.getElementById("dcui-featured-posts-style")) return;
       const style = document.createElement("style");
-      style.id = "dcfmk-featured-posts-style";
+      style.id = "dcui-featured-posts-style";
       style.textContent = `
-        #dcfmk-featured-posts { display: none; }
-        html.dcfmk-enabled #dcfmk-featured-posts {
+        #dcui-featured-posts { display: none; }
+        html.dcui-enabled #dcui-featured-posts {
           display: grid;
           box-sizing: border-box;
           width: 100%;
@@ -3117,43 +3117,43 @@
           margin: 0 0 12px;
           padding: 0 13px 10px;
           border: 0;
-          background: var(--dcfmk-color-surface);
+          background: var(--dcui-color-surface);
           font-family: Arial, "Malgun Gothic", sans-serif;
         }
-        html.dcfmk-enabled #container:has(#dcfmk-featured-posts) {
+        html.dcui-enabled #container:has(#dcui-featured-posts) {
           margin-top: 5px !important;
         }
-        html.dcfmk-enabled.dcfmk-gallery-major #gall_top_recom {
+        html.dcui-enabled.dcui-gallery-major #gall_top_recom {
           display: none !important;
         }
-        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-column {
+        html.dcui-enabled #dcui-featured-posts .dcui-featured-column {
           min-width: 0;
         }
-        html.dcfmk-enabled #dcfmk-featured-posts h3 {
+        html.dcui-enabled #dcui-featured-posts h3 {
           height: 27px;
           margin: 0;
           border: 0;
           font-size: 16px;
           line-height: 26px;
         }
-        html.dcfmk-enabled.dcfmk-featured-hidden #dcfmk-featured-posts {
+        html.dcui-enabled.dcui-featured-hidden #dcui-featured-posts {
           display: none !important;
         }
-        html.dcfmk-enabled #dcfmk-featured-posts h3 a {
-          color: var(--dcfmk-color-nav);
+        html.dcui-enabled #dcui-featured-posts h3 a {
+          color: var(--dcui-color-nav);
           font-weight: 700;
           text-decoration: none;
         }
-        html.dcfmk-enabled #dcfmk-featured-posts h3 a:hover,
-        html.dcfmk-enabled #dcfmk-featured-posts h3 a:focus-visible {
+        html.dcui-enabled #dcui-featured-posts h3 a:hover,
+        html.dcui-enabled #dcui-featured-posts h3 a:focus-visible {
           text-decoration: underline;
         }
-        html.dcfmk-enabled #dcfmk-featured-posts ul {
+        html.dcui-enabled #dcui-featured-posts ul {
           margin: 5px 0 0;
           padding: 0;
           list-style: none;
         }
-        html.dcfmk-enabled #dcfmk-featured-posts li {
+        html.dcui-enabled #dcui-featured-posts li {
           display: flex;
           box-sizing: border-box;
           min-width: 0;
@@ -3164,58 +3164,58 @@
           font-size: 12px;
           line-height: 17px;
         }
-        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-title {
+        html.dcui-enabled #dcui-featured-posts .dcui-featured-title {
           display: block;
           min-width: 0;
           flex: 1 1 auto;
           overflow: hidden;
-          color: var(--dcfmk-color-featured-title);
+          color: var(--dcui-color-featured-title);
           text-overflow: ellipsis;
           white-space: nowrap;
           text-decoration: none;
         }
-        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-title:visited {
-          color: var(--dcfmk-color-featured-visited);
+        html.dcui-enabled #dcui-featured-posts .dcui-featured-title:visited {
+          color: var(--dcui-color-featured-visited);
         }
-        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-title::before {
+        html.dcui-enabled #dcui-featured-posts .dcui-featured-title::before {
           content: "·";
           margin-right: 5px;
-          color: var(--dcfmk-color-faint);
+          color: var(--dcui-color-faint);
         }
-        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-title:hover,
-        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-title:focus-visible {
-          color: var(--dcfmk-color-nav);
+        html.dcui-enabled #dcui-featured-posts .dcui-featured-title:hover,
+        html.dcui-enabled #dcui-featured-posts .dcui-featured-title:focus-visible {
+          color: var(--dcui-color-nav);
           text-decoration: underline;
         }
-        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-comments,
-        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-recommends {
+        html.dcui-enabled #dcui-featured-posts .dcui-featured-comments,
+        html.dcui-enabled #dcui-featured-posts .dcui-featured-recommends {
           flex: 0 0 auto;
           font-size: 11px;
           text-decoration: none;
         }
-        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-comments {
-          color: var(--dcfmk-color-link-bright);
+        html.dcui-enabled #dcui-featured-posts .dcui-featured-comments {
+          color: var(--dcui-color-link-bright);
           font-weight: 700;
         }
-        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-comments::before {
+        html.dcui-enabled #dcui-featured-posts .dcui-featured-comments::before {
           content: "[";
         }
-        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-comments::after {
+        html.dcui-enabled #dcui-featured-posts .dcui-featured-comments::after {
           content: "]";
         }
-        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-recommends {
+        html.dcui-enabled #dcui-featured-posts .dcui-featured-recommends {
           min-width: 25px;
-          color: var(--dcfmk-color-muted);
+          color: var(--dcui-color-muted);
           text-align: right;
         }
-        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-recommends::before {
+        html.dcui-enabled #dcui-featured-posts .dcui-featured-recommends::before {
           content: "▲";
           margin-right: 2px;
-          color: var(--dcfmk-color-faint);
+          color: var(--dcui-color-faint);
           font-size: 8px;
         }
-        html.dcfmk-enabled #dcfmk-featured-posts .dcfmk-featured-status {
-          color: var(--dcfmk-color-faint);
+        html.dcui-enabled #dcui-featured-posts .dcui-featured-status {
+          color: var(--dcui-color-faint);
         }
       `;
       document.documentElement.appendChild(style);
@@ -3230,41 +3230,41 @@
       const leftContent = DcAdapter.leftContent();
       if (!siteRoot || !contentWrap || !container || !leftContent) return null;
 
-      const existing = document.getElementById("dcfmk-shell");
-      if (existing) return this.elements(existing, document.getElementById("dcfmk-sidebar"));
+      const existing = document.getElementById("dcui-shell");
+      if (existing) return this.elements(existing, document.getElementById("dcui-sidebar"));
 
       const originalLoginLink = DcAdapter.loginLink();
       const shell = document.createElement("header");
-      shell.id = "dcfmk-shell";
+      shell.id = "dcui-shell";
       shell.innerHTML = `
-        <div class="dcfmk-utility">
-          <div class="dcfmk-inner">
+        <div class="dcui-utility">
+          <div class="dcui-inner">
             <p>CONNECTING HEARTS! 디시인사이드입니다.</p>
             <nav aria-label="사용자 메뉴">
               <a data-role="myInfo">내 정보</a>
               <a data-role="myPosts">내 글</a>
               <a data-role="myComments">내 댓글</a>
-              <div class="dcfmk-native-alarm-mount" data-role="nativeAlarmMount">
+              <div class="dcui-native-alarm-mount" data-role="nativeAlarmMount">
                 <button type="button" data-role="nativeAlarm">내 알림<em aria-hidden="true"></em></button>
               </div>
               <a data-role="login">로그인</a>
-              <div class="dcfmk-native-dark-mode-mount" data-role="nativeDarkModeMount"></div>
-              <div class="dcfmk-theme-toggle-mount" data-role="themeToggleMount"></div>
+              <div class="dcui-native-dark-mode-mount" data-role="nativeDarkModeMount"></div>
+              <div class="dcui-theme-toggle-mount" data-role="themeToggleMount"></div>
             </nav>
           </div>
         </div>
-        <div class="dcfmk-brand-row dcfmk-inner">
-          <div class="dcfmk-brand-slot" data-role="brandSlot">
-            <a class="dcfmk-brand dcfmk-brand-fallback" data-role="listLink">
+        <div class="dcui-brand-row dcui-inner">
+          <div class="dcui-brand-slot" data-role="brandSlot">
+            <a class="dcui-brand dcui-brand-fallback" data-role="listLink">
               <strong>디시인사이드</strong><span>dcinside.com</span>
             </a>
           </div>
-          <div class="dcfmk-search-slot" data-role="searchSlot"></div>
+          <div class="dcui-search-slot" data-role="searchSlot"></div>
         </div>
-        <div class="dcfmk-nav-bar">
-          <nav class="dcfmk-inner" aria-label="갤러리 메뉴">
-            <div class="dcfmk-gallery-menu">
-              <a class="dcfmk-active" data-role="galleryHome">갤러리</a>
+        <div class="dcui-nav-bar">
+          <nav class="dcui-inner" aria-label="갤러리 메뉴">
+            <div class="dcui-gallery-menu">
+              <a class="dcui-active" data-role="galleryHome">갤러리</a>
             </div>
             <a data-role="minorHome">마이너갤</a>
             <a data-role="miniHome">미니갤</a>
@@ -3281,19 +3281,19 @@
       shell.querySelector('[data-role="minorHome"]').href = new URL("/m", context.urls.galleryHome).href;
       shell.querySelector('[data-role="miniHome"]').href = new URL("/n", context.urls.galleryHome).href;
       shell.querySelector('[data-role="personHome"]').href = new URL("/p", context.urls.galleryHome).href;
-      shell.querySelectorAll(".dcfmk-nav-bar > nav > a, .dcfmk-gallery-menu > a")
-        .forEach((link) => link.classList.remove("dcfmk-active"));
+      shell.querySelectorAll(".dcui-nav-bar > nav > a, .dcui-gallery-menu > a")
+        .forEach((link) => link.classList.remove("dcui-active"));
       const activeNavRole = {
         major: "galleryHome",
         minor: "minorHome",
         mini: "miniHome",
         person: "personHome",
       }[context.galleryType] || "galleryHome";
-      shell.querySelector(`[data-role="${activeNavRole}"]`)?.classList.add("dcfmk-active");
+      shell.querySelector(`[data-role="${activeNavRole}"]`)?.classList.add("dcui-active");
 
       const originalLogo = DcAdapter.logo();
       if (originalLogo) {
-        originalLogo.classList.add("dcfmk-brand", "dcfmk-native-logo");
+        originalLogo.classList.add("dcui-brand", "dcui-native-logo");
         shell.querySelector('[data-role="brandSlot"]').replaceChildren(originalLogo);
       }
 
@@ -3329,22 +3329,22 @@
       let rightContent = DcAdapter.rightContent();
       if (!rightContent) {
         rightContent = document.createElement("section");
-        rightContent.className = "right_content dcfmk-created-right-content";
+        rightContent.className = "right_content dcui-created-right-content";
         container.insertBefore(rightContent, leftContent.nextSibling);
       }
 
       const sidebar = document.createElement("aside");
-      sidebar.id = "dcfmk-sidebar";
+      sidebar.id = "dcui-sidebar";
       sidebar.innerHTML = `
-        <section class="dcfmk-side-card dcfmk-hotkeys">
-          <div class="dcfmk-side-title">
+        <section class="dcui-side-card dcui-hotkeys">
+          <div class="dcui-side-title">
             <strong>단축키</strong>
           </div>
           <ul data-role="shortcutList">
             <li><kbd>alt+c</kbd><a href="#" data-role="sideComment">댓글 쓰기</a></li>
             <li><kbd>alt+w</kbd><a data-role="sideWrite">글 쓰기</a></li>
             <li><kbd>alt+q</kbd><button type="button" data-role="sideRegister">댓글 등록</button></li>
-            <li><kbd>e</kbd><a href="#dcfmk-shell">상단으로</a></li>
+            <li><kbd>e</kbd><a href="#dcui-shell">상단으로</a></li>
             <li><kbd>d</kbd><a href="#footer">하단으로</a></li>
             ${context.pageType === "view" ? '<li><kbd>c</kbd><a href="#" data-role="sideComments">댓글로</a></li>' : ""}
             <li><kbd>s</kbd><a href="#" data-role="sidePrevious">이전</a></li>
@@ -3379,7 +3379,7 @@
       rightContent.replaceChildren(sidebar);
       const removeResidue = () => {
         for (const node of document.querySelectorAll("#login_box, .rightbanner1, .r_timebest, .r_dcmedia, .r_recommend")) {
-          if (node.closest("#dcfmk-shell, #dcfmk-sidebar")) continue;
+          if (node.closest("#dcui-shell, #dcui-sidebar")) continue;
           const nativeRail = node.closest(".right_content");
           if (nativeRail && !nativeRail.contains(sidebar)) {
             nativeRail.remove();
@@ -3400,48 +3400,48 @@
     mountGallerySettings(sidebar) {
       const settingButton = document.querySelector("#issue_setting, .gall_issuebox .issue_setting");
       const bundle = settingButton?.closest(".bundle");
-      if (!settingButton || !bundle || sidebar.querySelector(".dcfmk-gallery-settings")) return null;
+      if (!settingButton || !bundle || sidebar.querySelector(".dcui-gallery-settings")) return null;
 
       const card = document.createElement("section");
-      card.className = "dcfmk-side-card dcfmk-gallery-settings";
+      card.className = "dcui-side-card dcui-gallery-settings";
       card.innerHTML = `
-        <div class="dcfmk-side-title">
+        <div class="dcui-side-title">
           <strong>설정</strong>
-          <button type="button" class="dcfmk-gallery-settings-toggle" aria-controls="dcfmk-gallery-settings-body">숨기기</button>
+          <button type="button" class="dcui-gallery-settings-toggle" aria-controls="dcui-gallery-settings-body">숨기기</button>
         </div>
-        <div class="dcfmk-gallery-settings-body" id="dcfmk-gallery-settings-body"></div>
+        <div class="dcui-gallery-settings-body" id="dcui-gallery-settings-body"></div>
       `;
-      const settingsBody = card.querySelector(".dcfmk-gallery-settings-body");
-      const visibilityToggle = card.querySelector(".dcfmk-gallery-settings-toggle");
+      const settingsBody = card.querySelector(".dcui-gallery-settings-body");
+      const visibilityToggle = card.querySelector(".dcui-gallery-settings-toggle");
       const syncVisibility = (collapsed) => {
-        card.classList.toggle("dcfmk-gallery-settings-collapsed", collapsed);
+        card.classList.toggle("dcui-gallery-settings-collapsed", collapsed);
         settingsBody.hidden = collapsed;
         visibilityToggle.textContent = collapsed ? "보이기" : "숨기기";
         visibilityToggle.setAttribute("aria-expanded", String(!collapsed));
       };
       syncVisibility(GM_getValue(SETTINGS_COLLAPSED_KEY, true) !== false);
       visibilityToggle.addEventListener("click", () => {
-        const collapsed = !card.classList.contains("dcfmk-gallery-settings-collapsed");
+        const collapsed = !card.classList.contains("dcui-gallery-settings-collapsed");
         if (collapsed) SettingsModalView.close();
         GM_setValue(SETTINGS_COLLAPSED_KEY, collapsed);
         syncVisibility(collapsed);
       });
-      settingButton.classList.add("dcfmk-gallery-settings-button");
-      bundle.classList.add("dcfmk-gallery-settings-bundle");
+      settingButton.classList.add("dcui-gallery-settings-button");
+      bundle.classList.add("dcui-gallery-settings-bundle");
       const settingList = bundle.querySelector(".setting_list");
-      settingList?.classList.add("dcfmk-gallery-settings-list");
+      settingList?.classList.add("dcui-gallery-settings-list");
       if (settingList) settingList.style.display = "block";
       CustomSettingsController.mount(settingList);
       this.ensureNativeSettingsAnchor();
-      card.querySelector(".dcfmk-gallery-settings-body").appendChild(bundle);
-      sidebar.querySelector(".dcfmk-hotkeys")?.insertAdjacentElement("afterend", card);
+      card.querySelector(".dcui-gallery-settings-body").appendChild(bundle);
+      sidebar.querySelector(".dcui-hotkeys")?.insertAdjacentElement("afterend", card);
       SettingsModalView.mount(card);
       return card;
     },
 
     mountFavoriteShortcuts(sidebar) {
       let emptyConfirmationTimer = 0;
-      const card = sidebar.querySelector(".dcfmk-hotkeys");
+      const card = sidebar.querySelector(".dcui-hotkeys");
       const normalizeFavorites = (favorites) => (Array.isArray(favorites) ? favorites : [])
         .flatMap((favorite) => {
           const name = cleanText(favorite?.name);
@@ -3452,11 +3452,11 @@
       const render = (favoriteLinks) => {
         const list = sidebar.querySelector('[data-role="shortcutList"]');
         if (!list) return;
-        list.querySelectorAll(".dcfmk-favorite-shortcut").forEach((item) => item.remove());
+        list.querySelectorAll(".dcui-favorite-shortcut").forEach((item) => item.remove());
         const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
         for (const [index, favorite] of (favoriteLinks || []).slice(0, keys.length).entries()) {
           const item = document.createElement("li");
-          item.className = "dcfmk-favorite-shortcut";
+          item.className = "dcui-favorite-shortcut";
           item.dataset.shortcutKey = keys[index];
           const key = document.createElement("kbd");
           key.textContent = keys[index];
@@ -3471,7 +3471,7 @@
       };
       let cachedFavorites = normalizeFavorites(GM_getValue(FAVORITE_SHORTCUT_CACHE_KEY, []));
       let cacheReady = GM_getValue(FAVORITE_SHORTCUT_CACHE_READY_KEY, false) === true;
-      const revealCard = () => card?.classList.remove("dcfmk-hotkeys-favorites-pending");
+      const revealCard = () => card?.classList.remove("dcui-hotkeys-favorites-pending");
       const applyFavorites = (favoriteLinks) => {
         const normalized = normalizeFavorites(favoriteLinks);
         if (normalized.length > 0) {
@@ -3509,20 +3509,20 @@
           revealCard();
         }, 3200);
       };
-      const strip = document.getElementById("dcfmk-gallery-strip");
-      const initialFavorites = normalizeFavorites(strip?.__dcfmkGalleryData?.favoriteLinks || GalleryStripView.collectLinks([
+      const strip = document.getElementById("dcui-gallery-strip");
+      const initialFavorites = normalizeFavorites(strip?.__dcuiGalleryData?.favoriteLinks || GalleryStripView.collectLinks([
         "#visit_history .bkmark_listbox a",
         "#visit_history .under_listbox.bkmark a",
       ]));
       if (initialFavorites.length > 0) applyFavorites(initialFavorites);
       else {
         if (!cacheReady && cachedFavorites.length === 0) {
-          card?.classList.add("dcfmk-hotkeys-favorites-pending");
+          card?.classList.add("dcui-hotkeys-favorites-pending");
         }
         render(cachedFavorites);
         applyFavorites([]);
       }
-      document.addEventListener("dcfmk:favorites-updated", (event) => {
+      document.addEventListener("dcui:favorites-updated", (event) => {
         applyFavorites(event.detail?.favoriteLinks || []);
       });
     },
@@ -3530,9 +3530,9 @@
     ensureNativeSettingsAnchor() {
       if (document.querySelector("#container header .gall_issuebox")) return;
       const container = document.querySelector("#container");
-      if (!container || container.querySelector(".dcfmk-native-settings-anchor")) return;
+      if (!container || container.querySelector(".dcui-native-settings-anchor")) return;
       const anchor = document.createElement("header");
-      anchor.className = "dcfmk-native-settings-anchor";
+      anchor.className = "dcui-native-settings-anchor";
       anchor.innerHTML = '<span class="gall_issuebox"></span>';
       container.prepend(anchor);
     },
@@ -3549,7 +3549,7 @@
       if (nativeSettings && mount) mount.appendChild(nativeSettings);
 
       const syncUnread = () => {
-        indicator.classList.toggle("dcfmk-has-native-alarm", Boolean(nativeLink?.querySelector(".icon_noti.new")));
+        indicator.classList.toggle("dcui-has-native-alarm", Boolean(nativeLink?.querySelector(".icon_noti.new")));
       };
       syncUnread();
       if (nativeLink && typeof MutationObserver === "function") {
@@ -3587,20 +3587,20 @@
         if (mount) mount.hidden = true;
         return null;
       }
-      if (!document.getElementById("dcfmk-native-dark-mode-anchor")) {
+      if (!document.getElementById("dcui-native-dark-mode-anchor")) {
         const anchor = document.createElement("span");
-        anchor.id = "dcfmk-native-dark-mode-anchor";
+        anchor.id = "dcui-native-dark-mode-anchor";
         anchor.hidden = true;
         nativeDarkMode.insertAdjacentElement("beforebegin", anchor);
       }
-      nativeDarkMode.classList.add("dcfmk-native-dark-mode");
+      nativeDarkMode.classList.add("dcui-native-dark-mode");
       mount.appendChild(nativeDarkMode);
       return nativeLink;
     },
 
     bindShortcuts(context, sidebar) {
-      if (document.documentElement.dataset.dcfmkShortcuts === "true") return;
-      document.documentElement.dataset.dcfmkShortcuts = "true";
+      if (document.documentElement.dataset.dcuiShortcuts === "true") return;
+      document.documentElement.dataset.dcuiShortcuts = "true";
 
       sidebar.querySelector('[data-role="sideComment"]')?.addEventListener("click", (event) => {
         event.preventDefault();
@@ -3610,7 +3610,7 @@
       });
       sidebar.querySelector('[data-role="sideComments"]')?.addEventListener("click", (event) => {
         event.preventDefault();
-        document.querySelector(".dcfmk-comments")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        document.querySelector(".dcui-comments")?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
       sidebar.querySelector('[data-role="sideRegister"]')?.addEventListener("click", () => {
         const submit = [...document.querySelectorAll(".cmt_write_box button")]
@@ -3710,7 +3710,7 @@
           event.preventDefault();
           location.assign(context.urls.concept);
         } else if (/^[0-9]$/.test(key)) {
-          const favorite = sidebar.querySelector(`.dcfmk-favorite-shortcut[data-shortcut-key="${key}"] a`);
+          const favorite = sidebar.querySelector(`.dcui-favorite-shortcut[data-shortcut-key="${key}"] a`);
           if (!favorite) return;
           event.preventDefault();
           favorite.click();
@@ -3721,8 +3721,8 @@
     configureDirectionalShortcuts(context, previousShortcut, nextShortcut) {
       const setTarget = (control, href, label) => {
         if (!control) return;
-        if (control.dataset.dcfmkDisabledGuard !== "true") {
-          control.dataset.dcfmkDisabledGuard = "true";
+        if (control.dataset.dcuiDisabledGuard !== "true") {
+          control.dataset.dcuiDisabledGuard = "true";
           control.addEventListener("click", (event) => {
             if (control.getAttribute("aria-disabled") === "true") event.preventDefault();
           });
@@ -3788,14 +3788,14 @@
     },
 
     async navigateVisiblePost(control, direction) {
-      if (!control || control.dataset.dcfmkPostResolving === "true") return;
-      control.dataset.dcfmkPostResolving = "true";
+      if (!control || control.dataset.dcuiPostResolving === "true") return;
+      control.dataset.dcuiPostResolving = "true";
       const sourceHref = location.href;
       try {
         const href = await this.resolveVisiblePostHref(direction);
         if (href && location.href === sourceHref) location.assign(href);
       } finally {
-        delete control.dataset.dcfmkPostResolving;
+        delete control.dataset.dcuiPostResolving;
       }
     },
 
@@ -3852,102 +3852,102 @@
       if (!elements) return;
       if (elements.alarmState) {
         elements.alarmState.textContent = running ? "ON" : "OFF";
-        elements.alarmState.classList.toggle("dcfmk-on", running);
+        elements.alarmState.classList.toggle("dcui-on", running);
       }
       if (elements.alarmMessage) elements.alarmMessage.textContent = message;
     },
 
     injectStyle() {
-      if (document.getElementById("dcfmk-shell-style")) return;
+      if (document.getElementById("dcui-shell-style")) return;
 
       const style = document.createElement("style");
-      style.id = "dcfmk-shell-style";
+      style.id = "dcui-shell-style";
       style.textContent = `
-        #dcfmk-shell,
-        #dcfmk-sidebar {
+        #dcui-shell,
+        #dcui-sidebar {
           display: none;
         }
-        html.dcfmk-enabled #top > .dcheader,
-        html.dcfmk-enabled #top > .gnb_bar {
+        html.dcui-enabled #top > .dcheader,
+        html.dcui-enabled #top > .gnb_bar {
           display: none !important;
         }
-        html.dcfmk-enabled #top.list_wrap,
-        html.dcfmk-enabled #top.view_wrap {
-          min-width: var(--dcfmk-page-width) !important;
+        html.dcui-enabled #top.list_wrap,
+        html.dcui-enabled #top.view_wrap {
+          min-width: var(--dcui-page-width) !important;
         }
-        html.dcfmk-enabled #dcfmk-shell {
+        html.dcui-enabled #dcui-shell {
           display: block;
-          border-top: 1px solid var(--dcfmk-color-border-strong);
-          background: var(--dcfmk-color-surface);
-          color: var(--dcfmk-color-text);
-          font: 12px/1.4 var(--dcfmk-font);
+          border-top: 1px solid var(--dcui-color-border-strong);
+          background: var(--dcui-color-surface);
+          color: var(--dcui-color-text);
+          font: 12px/1.4 var(--dcui-font);
         }
-        html.dcfmk-enabled #dcfmk-shell * {
+        html.dcui-enabled #dcui-shell * {
           box-sizing: border-box;
         }
-        html.dcfmk-enabled #dcfmk-shell a {
+        html.dcui-enabled #dcui-shell a {
           color: inherit;
           text-decoration: none;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-inner {
-          width: var(--dcfmk-page-width);
+        html.dcui-enabled #dcui-shell .dcui-inner {
+          width: var(--dcui-page-width);
           margin: 0 auto;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-utility {
+        html.dcui-enabled #dcui-shell .dcui-utility {
           height: 28px;
-          border-bottom: 1px solid var(--dcfmk-color-border);
-          background: var(--dcfmk-color-subtle);
-          color: var(--dcfmk-color-muted);
+          border-bottom: 1px solid var(--dcui-color-border);
+          background: var(--dcui-color-subtle);
+          color: var(--dcui-color-muted);
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-utility .dcfmk-inner {
+        html.dcui-enabled #dcui-shell .dcui-utility .dcui-inner {
           display: flex;
           align-items: center;
           justify-content: space-between;
           height: 100%;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-utility p {
+        html.dcui-enabled #dcui-shell .dcui-utility p {
           margin: 0;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-utility nav {
+        html.dcui-enabled #dcui-shell .dcui-utility nav {
           display: flex;
           align-items: center;
           gap: 0;
-          font: 400 11px/27px var(--dcfmk-font);
+          font: 400 11px/27px var(--dcui-font);
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-utility nav > * {
+        html.dcui-enabled #dcui-shell .dcui-utility nav > * {
           border: 0;
           padding: 0 8px;
           background: transparent;
-          color: var(--dcfmk-color-muted);
+          color: var(--dcui-color-muted);
           font: inherit;
           cursor: pointer;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-utility nav > [hidden] {
+        html.dcui-enabled #dcui-shell .dcui-utility nav > [hidden] {
           display: none !important;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-utility nav > * + * {
-          border-left: 1px solid var(--dcfmk-color-border);
+        html.dcui-enabled #dcui-shell .dcui-utility nav > * + * {
+          border-left: 1px solid var(--dcui-color-border);
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-utility nav > .dcfmk-theme-toggle-mount {
+        html.dcui-enabled #dcui-shell .dcui-utility nav > .dcui-theme-toggle-mount {
           display: flex;
           height: 27px;
           align-items: center;
           padding: 0 8px;
           cursor: default;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-utility nav > .dcfmk-theme-toggle-mount:hover {
+        html.dcui-enabled #dcui-shell .dcui-utility nav > .dcui-theme-toggle-mount:hover {
           color: inherit;
           text-decoration: none;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-theme-toggle-mount > #dcfmk-theme-toggle {
+        html.dcui-enabled #dcui-shell .dcui-theme-toggle-mount > #dcui-theme-toggle {
           height: 27px;
           font: inherit;
           line-height: 27px;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-theme-toggle-mount > #dcfmk-theme-toggle .dcfmk-theme-toggle-label {
+        html.dcui-enabled #dcui-shell .dcui-theme-toggle-mount > #dcui-theme-toggle .dcui-theme-toggle-label {
           line-height: inherit;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-utility .dcfmk-native-dark-mode-mount {
+        html.dcui-enabled #dcui-shell .dcui-utility .dcui-native-dark-mode-mount {
           position: relative;
           display: flex;
           align-self: stretch;
@@ -3955,7 +3955,7 @@
           padding: 0;
           cursor: default;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-native-dark-mode {
+        html.dcui-enabled #dcui-shell .dcui-native-dark-mode {
           position: relative;
           float: none;
           display: flex;
@@ -3963,40 +3963,40 @@
           margin: 0;
           align-items: center;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-native-dark-mode > .darkonoff {
+        html.dcui-enabled #dcui-shell .dcui-native-dark-mode > .darkonoff {
           display: flex;
           height: 27px;
           align-items: center;
           padding: 0 8px;
-          color: var(--dcfmk-color-muted);
+          color: var(--dcui-color-muted);
           font: inherit;
           line-height: 27px;
           cursor: pointer;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-native-dark-mode > .darkonoff > .icon_tdark {
+        html.dcui-enabled #dcui-shell .dcui-native-dark-mode > .darkonoff > .icon_tdark {
           position: relative;
           top: -1px;
           flex: 0 0 auto;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-native-dark-mode > .darkonoff:hover {
-          color: var(--dcfmk-color-link);
+        html.dcui-enabled #dcui-shell .dcui-native-dark-mode > .darkonoff:hover {
+          color: var(--dcui-color-link);
           text-decoration: underline;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-utility .dcfmk-native-alarm-mount {
+        html.dcui-enabled #dcui-shell .dcui-utility .dcui-native-alarm-mount {
           position: relative;
           align-self: stretch;
           padding: 0;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-native-alarm-mount > [data-role="nativeAlarm"] {
+        html.dcui-enabled #dcui-shell .dcui-native-alarm-mount > [data-role="nativeAlarm"] {
           height: 27px;
           border: 0;
           padding: 0 8px;
           background: transparent;
-          color: var(--dcfmk-color-muted);
+          color: var(--dcui-color-muted);
           font: inherit;
           cursor: pointer;
         }
-        html.dcfmk-enabled #dcfmk-shell [data-role="nativeAlarm"] em {
+        html.dcui-enabled #dcui-shell [data-role="nativeAlarm"] em {
           display: none;
           width: 4px;
           height: 4px;
@@ -4004,11 +4004,11 @@
           border-radius: 50%;
           background: #d31900;
         }
-        html.dcfmk-enabled #dcfmk-shell [data-role="nativeAlarm"] em.dcfmk-has-native-alarm {
+        html.dcui-enabled #dcui-shell [data-role="nativeAlarm"] em.dcui-has-native-alarm {
           display: inline-block;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-native-alarm-mount #alarmList,
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-native-alarm-mount #alarmConf {
+        html.dcui-enabled #dcui-shell .dcui-native-alarm-mount #alarmList,
+        html.dcui-enabled #dcui-shell .dcui-native-alarm-mount #alarmConf {
           position: absolute !important;
           z-index: 10030 !important;
           top: calc(100% + 4px) !important;
@@ -4018,64 +4018,64 @@
           margin: 0 !important;
           text-align: left;
         }
-        html.dcfmk-enabled #dcfmk-shell #alarmConf .notice_setting {
+        html.dcui-enabled #dcui-shell #alarmConf .notice_setting {
           width: auto;
-          color: var(--dcfmk-color-text);
-          background: var(--dcfmk-color-surface);
+          color: var(--dcui-color-text);
+          background: var(--dcui-color-surface);
         }
-        html.dcfmk-enabled #dcfmk-shell #alarmConf .inner {
+        html.dcui-enabled #dcui-shell #alarmConf .inner {
           padding: 12px 14px;
         }
-        html.dcfmk-enabled #dcfmk-shell #alarmConf .set_element_box {
+        html.dcui-enabled #dcui-shell #alarmConf .set_element_box {
           padding-right: 65px;
           color: inherit;
         }
-        html.dcfmk-enabled #dcfmk-shell #alarmConf .inner_txt {
+        html.dcui-enabled #dcui-shell #alarmConf .inner_txt {
           font-size: 12px;
           white-space: nowrap;
         }
-        html.dcfmk-enabled #dcfmk-shell #alarmConf .setting_onoff {
+        html.dcui-enabled #dcui-shell #alarmConf .setting_onoff {
           right: 0;
         }
-        html.dcfmk-enabled #dcfmk-shell #alarmConf .btn_box {
+        html.dcui-enabled #dcui-shell #alarmConf .btn_box {
           padding-bottom: 14px;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-utility nav > *:hover {
-          color: var(--dcfmk-color-link);
+        html.dcui-enabled #dcui-shell .dcui-utility nav > *:hover {
+          color: var(--dcui-color-link);
           text-decoration: underline;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-brand-row {
+        html.dcui-enabled #dcui-shell .dcui-brand-row {
           position: relative;
           display: flex;
           align-items: center;
           height: 82px;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-brand-slot {
+        html.dcui-enabled #dcui-shell .dcui-brand-slot {
           display: flex;
           min-width: 196px;
           align-items: center;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-brand {
+        html.dcui-enabled #dcui-shell .dcui-brand {
           display: inline-flex;
           align-items: baseline;
           gap: 8px;
-          color: var(--dcfmk-color-nav);
+          color: var(--dcui-color-nav);
           letter-spacing: -1px;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-brand strong {
-          color: var(--dcfmk-color-nav);
+        html.dcui-enabled #dcui-shell .dcui-brand strong {
+          color: var(--dcui-color-nav);
           font-size: 29px;
           font-style: normal;
           font-weight: 900;
           letter-spacing: -2px;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-brand span {
-          color: var(--dcfmk-color-link);
+        html.dcui-enabled #dcui-shell .dcui-brand span {
+          color: var(--dcui-color-link);
           font-size: 13px;
           font-weight: 700;
           letter-spacing: 0;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-native-logo {
+        html.dcui-enabled #dcui-shell .dcui-native-logo {
           position: static !important;
           top: auto !important;
           left: auto !important;
@@ -4085,31 +4085,31 @@
           margin: 0 !important;
           align-items: center;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-native-logo a {
+        html.dcui-enabled #dcui-shell .dcui-native-logo a {
           display: flex !important;
           align-items: center;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-native-logo img {
+        html.dcui-enabled #dcui-shell .dcui-native-logo img {
           position: static !important;
           max-width: none;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-search-slot {
+        html.dcui-enabled #dcui-shell .dcui-search-slot {
           width: 320px;
           margin-left: auto;
         }
-        html.dcfmk-enabled #dcfmk-shell #search_wrap {
+        html.dcui-enabled #dcui-shell #search_wrap {
           position: relative;
           inset: auto !important;
           width: 320px;
           height: 34px;
           margin: 0;
         }
-        html.dcfmk-enabled #dcfmk-shell #search_wrap fieldset {
+        html.dcui-enabled #dcui-shell #search_wrap fieldset {
           position: relative;
           width: 100%;
           height: 100%;
         }
-        html.dcfmk-enabled #dcfmk-shell #search_wrap .auto_wordwrap {
+        html.dcui-enabled #dcui-shell #search_wrap .auto_wordwrap {
           box-sizing: border-box;
           left: 0 !important;
           right: auto !important;
@@ -4119,32 +4119,32 @@
           margin: 0 !important;
           z-index: 20;
         }
-        html.dcfmk-enabled #dcfmk-shell #search_wrap .auto_wordwrap .word_close {
-          border-top: 1px solid var(--dcfmk-color-border);
-          background: var(--dcfmk-color-surface-muted) !important;
-          color: var(--dcfmk-color-text-soft);
+        html.dcui-enabled #dcui-shell #search_wrap .auto_wordwrap .word_close {
+          border-top: 1px solid var(--dcui-color-border);
+          background: var(--dcui-color-surface-muted) !important;
+          color: var(--dcui-color-text-soft);
         }
-        html.dcfmk-enabled #dcfmk-shell #search_wrap .auto_wordwrap .saveonfo .round_label .inr {
-          color: var(--dcfmk-color-nav-light) !important;
+        html.dcui-enabled #dcui-shell #search_wrap .auto_wordwrap .saveonfo .round_label .inr {
+          color: var(--dcui-color-nav-light) !important;
         }
-        html.dcfmk-enabled #dcfmk-shell #search_wrap .top_search {
+        html.dcui-enabled #dcui-shell #search_wrap .top_search {
           width: 320px;
           height: 34px;
-          border: 3px solid var(--dcfmk-color-nav-light);
-          background: var(--dcfmk-color-surface);
+          border: 3px solid var(--dcui-color-nav-light);
+          background: var(--dcui-color-surface);
         }
-        html.dcfmk-enabled #dcfmk-shell #search_wrap .inner_search {
+        html.dcui-enabled #dcui-shell #search_wrap .inner_search {
           float: left;
           width: 276px;
           height: 28px;
           margin: 0 !important;
         }
-        html.dcfmk-enabled #dcfmk-shell #search_wrap .in_keyword {
+        html.dcui-enabled #dcui-shell #search_wrap .in_keyword {
           width: 264px;
           height: 28px;
-          color: var(--dcfmk-color-text);
+          color: var(--dcui-color-text);
         }
-        html.dcfmk-enabled #dcfmk-shell #search_wrap .bnt_search {
+        html.dcui-enabled #dcui-shell #search_wrap .bnt_search {
           position: relative !important;
           top: 0 !important;
           right: 0 !important;
@@ -4152,39 +4152,39 @@
           width: 38px;
           height: 28px;
           margin: 0 !important;
-          background-color: var(--dcfmk-color-nav-light) !important;
+          background-color: var(--dcui-color-nav-light) !important;
           background-image: none !important;
         }
-        html.dcfmk-enabled #dcfmk-shell #search_wrap .bnt_search::before {
+        html.dcui-enabled #dcui-shell #search_wrap .bnt_search::before {
           position: absolute;
           left: 11px;
           top: 5px;
           width: 10px;
           height: 10px;
-          border: 2px solid var(--dcfmk-color-on-accent);
+          border: 2px solid var(--dcui-color-on-accent);
           border-radius: 50%;
           content: "";
         }
-        html.dcfmk-enabled #dcfmk-shell #search_wrap .bnt_search::after {
+        html.dcui-enabled #dcui-shell #search_wrap .bnt_search::after {
           position: absolute;
           left: 22px;
           top: 16px;
           width: 8px;
           height: 2px;
-          background: var(--dcfmk-color-on-accent);
+          background: var(--dcui-color-on-accent);
           content: "";
           transform: rotate(45deg);
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-nav-bar {
+        html.dcui-enabled #dcui-shell .dcui-nav-bar {
           height: 46px;
           border: 0;
           background: transparent;
-          color: var(--dcfmk-color-on-accent);
+          color: var(--dcui-color-on-accent);
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-nav-bar nav {
+        html.dcui-enabled #dcui-shell .dcui-nav-bar nav {
           display: flex;
           box-sizing: border-box;
-          width: var(--dcfmk-page-width);
+          width: var(--dcui-page-width);
           align-items: flex-start;
           height: 46px;
           margin: 0 auto;
@@ -4193,18 +4193,18 @@
           border-bottom: 1px solid #3b4890;
           background: #3b4890;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-gallery-menu {
+        html.dcui-enabled #dcui-shell .dcui-gallery-menu {
           position: relative;
           display: flex;
           height: 44px;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-nav-bar a {
+        html.dcui-enabled #dcui-shell .dcui-nav-bar a {
           min-width: 0;
           height: 44px;
           margin-left: 20px;
           padding: 0;
           border: 0;
-          color: var(--dcfmk-color-on-accent);
+          color: var(--dcui-color-on-accent);
           font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", Arial, Dotum, 돋움, sans-serif;
           font-size: 14px;
           font-weight: 700;
@@ -4213,103 +4213,103 @@
           text-align: center;
           text-shadow: 0 -1px #1f2552;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-gallery-menu > a {
+        html.dcui-enabled #dcui-shell .dcui-gallery-menu > a {
           margin-left: 0;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-nav-bar a:hover,
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-nav-bar a:focus-visible {
-          color: var(--dcfmk-color-on-accent);
+        html.dcui-enabled #dcui-shell .dcui-nav-bar a:hover,
+        html.dcui-enabled #dcui-shell .dcui-nav-bar a:focus-visible {
+          color: var(--dcui-color-on-accent);
           text-decoration: underline;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-nav-bar a.dcfmk-active {
+        html.dcui-enabled #dcui-shell .dcui-nav-bar a.dcui-active {
           background: transparent;
           color: #ffed44;
         }
-        html.dcfmk-enabled #container > .left_content {
+        html.dcui-enabled #container > .left_content {
           float: left;
-          width: var(--dcfmk-content-width) !important;
+          width: var(--dcui-content-width) !important;
         }
-        html.dcfmk-enabled.dcfmk-page-view #container > section:first-of-type {
+        html.dcui-enabled.dcui-page-view #container > section:first-of-type {
           float: left;
-          width: var(--dcfmk-content-width) !important;
+          width: var(--dcui-content-width) !important;
         }
-        html.dcfmk-enabled #container > .right_content {
+        html.dcui-enabled #container > .right_content {
           float: right;
-          width: var(--dcfmk-sidebar-width) !important;
+          width: var(--dcui-sidebar-width) !important;
         }
-        html.dcfmk-enabled #container > .right_content > :not(#dcfmk-sidebar) {
+        html.dcui-enabled #container > .right_content > :not(#dcui-sidebar) {
           display: none !important;
         }
-        html.dcfmk-enabled.dcfmk-page-view #container > article {
+        html.dcui-enabled.dcui-page-view #container > article {
           clear: both;
         }
-        html.dcfmk-enabled #visit_history {
-          width: var(--dcfmk-page-width);
-          border-color: var(--dcfmk-color-border);
-          background: var(--dcfmk-color-subtle);
+        html.dcui-enabled #visit_history {
+          width: var(--dcui-page-width);
+          border-color: var(--dcui-color-border);
+          background: var(--dcui-color-subtle);
         }
-        html.dcfmk-enabled #dcfmk-sidebar {
+        html.dcui-enabled #dcui-sidebar {
           display: block;
-          width: var(--dcfmk-sidebar-width);
-          color: var(--dcfmk-color-text);
-          font: 12px/1.45 var(--dcfmk-font);
+          width: var(--dcui-sidebar-width);
+          color: var(--dcui-color-text);
+          font: 12px/1.45 var(--dcui-font);
         }
-        html.dcfmk-enabled #dcfmk-sidebar * {
+        html.dcui-enabled #dcui-sidebar * {
           box-sizing: border-box;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-side-card {
+        html.dcui-enabled #dcui-sidebar .dcui-side-card {
           margin-bottom: 14px;
-          border: 1px solid var(--dcfmk-color-border);
-          background: var(--dcfmk-color-surface);
+          border: 1px solid var(--dcui-color-border);
+          background: var(--dcui-color-surface);
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-side-title {
+        html.dcui-enabled #dcui-sidebar .dcui-side-title {
           display: flex;
           align-items: center;
           justify-content: space-between;
           min-height: 26px;
           padding: 3px 10px;
-          border-bottom: 1px solid var(--dcfmk-color-border);
-          background: var(--dcfmk-color-subtle);
-          color: var(--dcfmk-color-text-soft);
+          border-bottom: 1px solid var(--dcui-color-border);
+          background: var(--dcui-color-subtle);
+          color: var(--dcui-color-text-soft);
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-side-title button {
+        html.dcui-enabled #dcui-sidebar .dcui-side-title button {
           border: 0;
           padding: 0;
           background: transparent;
-          color: var(--dcfmk-color-muted);
+          color: var(--dcui-color-muted);
           cursor: pointer;
-          font: 11px/1.4 var(--dcfmk-font);
+          font: 11px/1.4 var(--dcui-font);
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-side-title button:hover {
-          color: var(--dcfmk-color-link);
+        html.dcui-enabled #dcui-sidebar .dcui-side-title button:hover {
+          color: var(--dcui-color-link);
           text-decoration: underline;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-side-title button.dcfmk-gallery-settings-toggle {
+        html.dcui-enabled #dcui-sidebar .dcui-side-title button.dcui-gallery-settings-toggle {
           margin-left: auto;
-          color: var(--dcfmk-color-text-strong);
+          color: var(--dcui-color-text-strong);
           text-align: right;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-side-title button.dcfmk-gallery-settings-toggle:hover {
-          color: var(--dcfmk-color-text-strong);
+        html.dcui-enabled #dcui-sidebar .dcui-side-title button.dcui-gallery-settings-toggle:hover {
+          color: var(--dcui-color-text-strong);
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-hotkeys > ul {
+        html.dcui-enabled #dcui-sidebar .dcui-hotkeys > ul {
           display: grid;
           grid-template-columns: 1fr 1fr;
           margin: 0;
           padding: 5px 0 7px;
           list-style: none;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-hotkeys.dcfmk-hotkeys-favorites-pending {
+        html.dcui-enabled #dcui-sidebar .dcui-hotkeys.dcui-hotkeys-favorites-pending {
           visibility: hidden;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-hotkeys li {
+        html.dcui-enabled #dcui-sidebar .dcui-hotkeys li {
           display: flex;
           min-width: 0;
           align-items: center;
           height: 20px;
           padding: 2px 4px;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-hotkeys li:has(
+        html.dcui-enabled #dcui-sidebar .dcui-hotkeys li:has(
           [data-role="sideGallery"],
           [data-role="sideMinor"],
           [data-role="sideMini"],
@@ -4317,92 +4317,92 @@
         ) {
           display: none !important;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-hotkeys kbd {
+        html.dcui-enabled #dcui-sidebar .dcui-hotkeys kbd {
           flex: 0 0 auto;
           min-width: 27px;
           height: 15px;
           margin-right: 4px;
-          border: 1px solid var(--dcfmk-color-border);
-          background: var(--dcfmk-color-surface-strong);
-          color: var(--dcfmk-color-muted);
+          border: 1px solid var(--dcui-color-border);
+          background: var(--dcui-color-surface-strong);
+          color: var(--dcui-color-muted);
           font: 700 10px/13px monospace;
           text-align: center;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-hotkeys a,
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-hotkeys li > button {
+        html.dcui-enabled #dcui-sidebar .dcui-hotkeys a,
+        html.dcui-enabled #dcui-sidebar .dcui-hotkeys li > button {
           min-width: 0;
           overflow: hidden;
           border: 0;
           padding: 0;
           background: transparent;
-          color: var(--dcfmk-color-muted);
-          font: 11px/1.4 var(--dcfmk-font);
+          color: var(--dcui-color-muted);
+          font: 11px/1.4 var(--dcui-font);
           text-decoration: none;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-hotkeys a:hover,
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-hotkeys li > button:hover {
-          color: var(--dcfmk-color-link);
+        html.dcui-enabled #dcui-sidebar .dcui-hotkeys a:hover,
+        html.dcui-enabled #dcui-sidebar .dcui-hotkeys li > button:hover {
+          color: var(--dcui-color-link);
           text-decoration: underline;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings {
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings {
           position: relative;
           overflow: visible;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-body {
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-body {
           position: relative;
           padding: 0;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-body[hidden] {
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-body[hidden] {
           display: none !important;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-collapsed > .dcfmk-side-title {
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-collapsed > .dcui-side-title {
           border-bottom: 0;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle {
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-bundle {
           position: relative !important;
           float: none !important;
           width: 100%;
           margin: 0 !important;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-button {
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-button {
           display: none !important;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle > .new {
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-bundle > .new {
           display: none !important;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list {
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-bundle .setting_list {
           position: static !important;
           display: block !important;
           width: 100% !important;
           margin: 0 !important;
           border: 0;
-          background: var(--dcfmk-color-surface);
+          background: var(--dcui-color-surface);
           box-shadow: none;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list .inner {
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-bundle .setting_list .inner {
           padding: 4px 0;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list ul {
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-bundle .setting_list ul {
           margin: 0;
           padding: 0;
           list-style: none;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list li {
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-bundle .setting_list li {
           min-height: 27px;
           margin: 0;
-          border-bottom: 1px solid var(--dcfmk-color-border);
+          border-bottom: 1px solid var(--dcui-color-border);
           padding: 0;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list li:last-child {
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-bundle .setting_list li:last-child {
           border-bottom: 0;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list li.dcfmk-custom-setting:has(#dcfmk-enable-concept-alarm) {
-          border-bottom-color: var(--dcfmk-color-border-strong);
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-bundle .setting_list li.dcui-custom-setting:has(#dcui-enable-concept-alarm) {
+          border-bottom-color: var(--dcui-color-border-strong);
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list li > button,
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list li > span {
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-bundle .setting_list li > button,
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-bundle .setting_list li > span {
           display: flex;
           box-sizing: border-box;
           width: 100%;
@@ -4410,20 +4410,20 @@
           align-items: center;
           border: 0;
           padding: 5px 9px;
-          background: var(--dcfmk-color-surface);
-          color: var(--dcfmk-color-text-soft);
-          font: 11px/17px var(--dcfmk-font);
+          background: var(--dcui-color-surface);
+          color: var(--dcui-color-text-soft);
+          font: 11px/17px var(--dcui-font);
           text-align: left;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list li > button:hover {
-          background: var(--dcfmk-color-surface-muted);
-          color: var(--dcfmk-color-link);
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-bundle .setting_list li > button:hover {
+          background: var(--dcui-color-surface-muted);
+          color: var(--dcui-color-link);
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list li > .checkbox:hover {
-          background: var(--dcfmk-color-surface-muted);
-          color: var(--dcfmk-color-link);
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-bundle .setting_list li > .checkbox:hover {
+          background: var(--dcui-color-surface-muted);
+          color: var(--dcui-color-link);
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list .checkbox {
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-bundle .setting_list .checkbox {
           position: relative !important;
           display: flex !important;
           width: 100%;
@@ -4434,7 +4434,7 @@
           overflow: hidden;
           cursor: pointer;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list .checkbox label {
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-bundle .setting_list .checkbox label {
           min-width: 0;
           flex: 1 1 auto;
           overflow: hidden;
@@ -4443,7 +4443,7 @@
           white-space: nowrap;
           cursor: pointer;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list .checkbox input[type="checkbox"] {
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-bundle .setting_list .checkbox input[type="checkbox"] {
           position: absolute !important;
           width: 1px !important;
           height: 1px !important;
@@ -4452,7 +4452,7 @@
           overflow: hidden;
           pointer-events: none;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list .checkbox .checkmark {
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-bundle .setting_list .checkbox .checkmark {
           position: relative !important;
           right: auto !important;
           bottom: auto !important;
@@ -4461,128 +4461,128 @@
           width: 14px !important;
           height: 14px !important;
           margin: 0 !important;
-          border: 1px solid var(--dcfmk-color-border-control) !important;
+          border: 1px solid var(--dcui-color-border-control) !important;
           border-radius: 2px;
-          background: var(--dcfmk-color-surface) !important;
+          background: var(--dcui-color-surface) !important;
           background-image: none !important;
           cursor: pointer;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-gallery-settings-bundle .setting_list .checkbox input[type="checkbox"]:checked + .checkmark {
-          border-color: var(--dcfmk-color-nav-light) !important;
-          background: var(--dcfmk-color-nav-light) !important;
+        html.dcui-enabled #dcui-sidebar .dcui-gallery-settings-bundle .setting_list .checkbox input[type="checkbox"]:checked + .checkmark {
+          border-color: var(--dcui-color-nav-light) !important;
+          background: var(--dcui-color-nav-light) !important;
         }
-        html.dcfmk-enabled #dcfmk-sidebar [data-role="alarmState"] {
-          color: var(--dcfmk-color-faint);
+        html.dcui-enabled #dcui-sidebar [data-role="alarmState"] {
+          color: var(--dcui-color-faint);
           font-size: 11px;
           font-weight: 700;
         }
-        html.dcfmk-enabled #dcfmk-sidebar [data-role="alarmState"].dcfmk-on {
-          color: var(--dcfmk-color-accent);
+        html.dcui-enabled #dcui-sidebar [data-role="alarmState"].dcui-on {
+          color: var(--dcui-color-accent);
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-alarm-summary p {
+        html.dcui-enabled #dcui-sidebar .dcui-alarm-summary p {
           margin: 0;
           padding: 10px 9px 5px;
           overflow: hidden;
-          color: var(--dcfmk-color-text);
+          color: var(--dcui-color-text);
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-alarm-summary small {
+        html.dcui-enabled #dcui-sidebar .dcui-alarm-summary small {
           display: block;
           padding: 0 9px 10px;
-          color: var(--dcfmk-color-muted);
+          color: var(--dcui-color-muted);
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-side-links {
+        html.dcui-enabled #dcui-sidebar .dcui-side-links {
           margin: 0;
           padding: 5px 9px 8px;
           list-style: none;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-side-links li {
-          border-bottom: 1px dotted var(--dcfmk-color-border);
+        html.dcui-enabled #dcui-sidebar .dcui-side-links li {
+          border-bottom: 1px dotted var(--dcui-color-border);
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-side-links li:last-child {
+        html.dcui-enabled #dcui-sidebar .dcui-side-links li:last-child {
           border-bottom: 0;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-side-links a {
+        html.dcui-enabled #dcui-sidebar .dcui-side-links a {
           display: block;
           padding: 6px 2px;
-          color: var(--dcfmk-color-text-soft);
+          color: var(--dcui-color-text-soft);
           text-decoration: none;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-side-links a:hover {
-          color: var(--dcfmk-color-link);
+        html.dcui-enabled #dcui-sidebar .dcui-side-links a:hover {
+          color: var(--dcui-color-link);
           text-decoration: underline;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .dcfmk-version-card {
+        html.dcui-enabled #dcui-sidebar .dcui-version-card {
           display: flex;
           justify-content: space-between;
           padding: 8px 9px;
-          color: var(--dcfmk-color-muted);
+          color: var(--dcui-color-muted);
         }
-        html.dcfmk-enabled #visit_history {
+        html.dcui-enabled #visit_history {
           display: none !important;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-brand strong b {
-          color: var(--dcfmk-color-text-soft);
+        html.dcui-enabled #dcui-shell .dcui-brand strong b {
+          color: var(--dcui-color-text-soft);
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-brand strong em {
-          color: var(--dcfmk-color-link-secondary);
+        html.dcui-enabled #dcui-shell .dcui-brand strong em {
+          color: var(--dcui-color-link-secondary);
           font-style: normal;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-brand span {
-          color: var(--dcfmk-color-muted);
+        html.dcui-enabled #dcui-shell .dcui-brand span {
+          color: var(--dcui-color-muted);
           font-size: 12px;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-search-slot,
-        html.dcfmk-enabled #dcfmk-shell #search_wrap,
-        html.dcfmk-enabled #dcfmk-shell #search_wrap .top_search {
+        html.dcui-enabled #dcui-shell .dcui-search-slot,
+        html.dcui-enabled #dcui-shell #search_wrap,
+        html.dcui-enabled #dcui-shell #search_wrap .top_search {
           width: 255px;
         }
-        html.dcfmk-enabled #dcfmk-shell #search_wrap .top_search {
+        html.dcui-enabled #dcui-shell #search_wrap .top_search {
           display: flex;
           align-items: center;
           border: 0;
         }
-        html.dcfmk-enabled #dcfmk-shell #search_wrap .inner_search {
+        html.dcui-enabled #dcui-shell #search_wrap .inner_search {
           box-sizing: border-box;
           width: 211px;
           height: 30px;
-          border: 3px solid var(--dcfmk-color-nav-light);
+          border: 3px solid var(--dcui-color-nav-light);
         }
-        html.dcfmk-enabled #dcfmk-shell #search_wrap .in_keyword {
+        html.dcui-enabled #dcui-shell #search_wrap .in_keyword {
           box-sizing: border-box;
           width: 205px;
           height: 24px;
         }
-        html.dcfmk-enabled #dcfmk-shell #search_wrap .bnt_search {
+        html.dcui-enabled #dcui-shell #search_wrap .bnt_search {
           width: 39px;
           height: 28px;
           margin-left: 5px !important;
-          border: 1px solid var(--dcfmk-color-border-strong) !important;
+          border: 1px solid var(--dcui-color-border-strong) !important;
           border-radius: 3px;
-          background: linear-gradient(to bottom, var(--dcfmk-color-control-gradient-top) 0, var(--dcfmk-color-control-gradient-bottom) 100%) !important;
-          color: var(--dcfmk-color-text-soft);
+          background: linear-gradient(to bottom, var(--dcui-color-control-gradient-top) 0, var(--dcui-color-control-gradient-bottom) 100%) !important;
+          color: var(--dcui-color-text-soft);
           font-size: 0;
         }
-        html.dcfmk-enabled #dcfmk-shell #search_wrap .bnt_search::before {
+        html.dcui-enabled #dcui-shell #search_wrap .bnt_search::before {
           position: static;
           display: block;
           width: auto;
           height: auto;
           border: 0;
           border-radius: 0;
-          color: var(--dcfmk-color-text-soft);
-          font: 12px/26px var(--dcfmk-font);
+          color: var(--dcui-color-text-soft);
+          font: 12px/26px var(--dcui-font);
           content: "검색";
         }
-        html.dcfmk-enabled #dcfmk-shell #search_wrap .bnt_search::after {
+        html.dcui-enabled #dcui-shell #search_wrap .bnt_search::after {
           display: none;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-nav-spacer {
+        html.dcui-enabled #dcui-shell .dcui-nav-spacer {
           flex: 1;
         }
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-nav-bar a[data-role="allBoards"],
-        html.dcfmk-enabled #dcfmk-shell .dcfmk-nav-bar a[data-role="favorites"] {
+        html.dcui-enabled #dcui-shell .dcui-nav-bar a[data-role="allBoards"],
+        html.dcui-enabled #dcui-shell .dcui-nav-bar a[data-role="favorites"] {
           min-width: 0;
           padding-left: 11px;
           padding-right: 11px;
@@ -4601,16 +4601,16 @@
   let settingsUserMemoOpen = false;
   const SettingsModalView = Object.freeze({
     mount(card) {
-      if (!card || document.getElementById("dcfmk-settings-modal")) return;
+      if (!card || document.getElementById("dcui-settings-modal")) return;
 
       const overlay = document.createElement("div");
-      overlay.id = "dcfmk-settings-modal";
+      overlay.id = "dcui-settings-modal";
       overlay.hidden = true;
-      overlay.innerHTML = '<section class="dcfmk-settings-modal-dialog" role="dialog" aria-modal="false" aria-labelledby="dcfmk-settings-modal-title" data-placement="right"><header><strong id="dcfmk-settings-modal-title">설정</strong><button type="button" class="dcfmk-settings-modal-close" aria-label="설정 패널 닫기">×</button></header><div class="dcfmk-settings-modal-host"></div></section>';
+      overlay.innerHTML = '<section class="dcui-settings-modal-dialog" role="dialog" aria-modal="false" aria-labelledby="dcui-settings-modal-title" data-placement="right"><header><strong id="dcui-settings-modal-title">설정</strong><button type="button" class="dcui-settings-modal-close" aria-label="설정 패널 닫기">×</button></header><div class="dcui-settings-modal-host"></div></section>';
       document.body.appendChild(overlay);
 
       card.addEventListener("pointerdown", (event) => {
-        const button = event.target.closest(".setting_list li:not(.dcfmk-custom-setting) button");
+        const button = event.target.closest(".setting_list li:not(.dcui-custom-setting) button");
         if (!button) return;
         const selector = this.selectorFor(this.labelForButton(button));
         const visibleKnownPanel = selector
@@ -4624,7 +4624,7 @@
       }, true);
 
       card.addEventListener("click", (event) => {
-        const button = event.target.closest(".setting_list li:not(.dcfmk-custom-setting) button");
+        const button = event.target.closest(".setting_list li:not(.dcui-custom-setting) button");
         if (!button) return;
         const item = button.closest("li");
         const label = this.labelForButton(button);
@@ -4661,7 +4661,7 @@
           ? [...document.querySelectorAll(panelSelector)].some((node) => this.isVisible(node))
           : false;
         const sameTrigger = settingsModalLastTrigger === button
-          || item?.classList.contains("dcfmk-settings-trigger-active")
+          || item?.classList.contains("dcui-settings-trigger-active")
           || sameOpenPanel
           || settingsModalPointerCloseTrigger === button;
         settingsModalPointerCloseTrigger = null;
@@ -4689,7 +4689,7 @@
       }, true);
 
       card.addEventListener("click", (event) => {
-        const button = event.target.closest(".setting_list li:not(.dcfmk-custom-setting) button");
+        const button = event.target.closest(".setting_list li:not(.dcui-custom-setting) button");
         if (!button) return;
         this.arm(this.labelForButton(button), button);
       });
@@ -4701,7 +4701,7 @@
         event.preventDefault();
         input.click();
       });
-      overlay.querySelector(".dcfmk-settings-modal-close")?.addEventListener("click", () => this.close());
+      overlay.querySelector(".dcui-settings-modal-close")?.addEventListener("click", () => this.close());
       overlay.addEventListener("click", (event) => {
         const checkboxControl = event.target.closest("#user_memo_table input[type='checkbox'], #user_memo_table .checkmark");
         const checkbox = checkboxControl?.closest(".checkbox");
@@ -4723,7 +4723,7 @@
       }, true);
       overlay.addEventListener("click", (event) => {
         const memoRow = event.target.closest("#user_memo_table .memo_list .btn-wrap > button");
-        const host = overlay.querySelector(".dcfmk-settings-modal-host");
+        const host = overlay.querySelector(".dcui-settings-modal-host");
         const memoList = memoRow?.closest(".memo_list");
         if (!memoRow || !host || !memoList || !settingsModalState) return;
         if (event.target.closest("label") && !event.target.closest("input[type='checkbox'], .checkmark")) {
@@ -4744,8 +4744,8 @@
         if (closeButton) {
           const eventPath = typeof event.composedPath === "function" ? event.composedPath() : [];
           const closesAuxiliary = eventPath.some((node) => node instanceof Element
-            && (node.classList.contains("dcfmk-native-settings-auxiliary")
-              || node.classList.contains("dcfmk-native-settings-nested")));
+            && (node.classList.contains("dcui-native-settings-auxiliary")
+              || node.classList.contains("dcui-native-settings-nested")));
           if (closesAuxiliary) {
             window.setTimeout(() => {
               if (!overlay.hidden && settingsModalState) this.positionPanel();
@@ -4758,8 +4758,8 @@
       });
       const closeSettingsOnOutside = (event) => {
         if (overlay.hidden || !settingsModalState) return;
-        if (event.target.closest("#dcfmk-settings-modal .dcfmk-settings-modal-dialog")) return;
-        if (event.target.closest("#dcfmk-sidebar .dcfmk-gallery-settings")) return;
+        if (event.target.closest("#dcui-settings-modal .dcui-settings-modal-dialog")) return;
+        if (event.target.closest("#dcui-sidebar .dcui-gallery-settings")) return;
         this.close();
       };
       document.addEventListener("pointerdown", closeSettingsOnOutside, true);
@@ -4806,9 +4806,9 @@
     arm(label, trigger) {
       if (settingsModalState) this.close();
       settingsModalLastTrigger = trigger || document.activeElement;
-      document.querySelectorAll(".dcfmk-settings-trigger-active")
-        .forEach((node) => node.classList.remove("dcfmk-settings-trigger-active"));
-      settingsModalLastTrigger?.closest("li")?.classList.add("dcfmk-settings-trigger-active");
+      document.querySelectorAll(".dcui-settings-trigger-active")
+        .forEach((node) => node.classList.remove("dcui-settings-trigger-active"));
+      settingsModalLastTrigger?.closest("li")?.classList.add("dcui-settings-trigger-active");
       this.showPending(label);
       settingsModalTimers.forEach((timer) => window.clearTimeout(timer));
       settingsModalArmObserver?.disconnect();
@@ -4840,23 +4840,23 @@
     },
 
     showPending(label) {
-      const overlay = document.getElementById("dcfmk-settings-modal");
-      const host = overlay?.querySelector(".dcfmk-settings-modal-host");
+      const overlay = document.getElementById("dcui-settings-modal");
+      const host = overlay?.querySelector(".dcui-settings-modal-host");
       if (!overlay || !host) return;
-      overlay.querySelector("#dcfmk-settings-modal-title").textContent = label || "설정";
-      overlay.querySelector(".dcfmk-settings-modal-dialog").dataset.source = "";
-      host.innerHTML = '<div class="dcfmk-settings-loading" role="status">설정을 불러오는 중입니다.</div>';
+      overlay.querySelector("#dcui-settings-modal-title").textContent = label || "설정";
+      overlay.querySelector(".dcui-settings-modal-dialog").dataset.source = "";
+      host.innerHTML = '<div class="dcui-settings-loading" role="status">설정을 불러오는 중입니다.</div>';
       overlay.hidden = false;
       this.positionPanel();
     },
 
     showLoadFailure(label) {
       if (settingsModalState) return;
-      const overlay = document.getElementById("dcfmk-settings-modal");
-      const host = overlay?.querySelector(".dcfmk-settings-modal-host");
+      const overlay = document.getElementById("dcui-settings-modal");
+      const host = overlay?.querySelector(".dcui-settings-modal-host");
       if (!overlay || overlay.hidden || !host) return;
-      overlay.querySelector("#dcfmk-settings-modal-title").textContent = label || "설정";
-      host.innerHTML = '<div class="dcfmk-settings-loading dcfmk-settings-load-failed">설정 데이터를 불러오지 못했습니다.<small>로그인 상태나 네트워크 연결을 확인한 뒤 다시 눌러 주세요.</small></div>';
+      overlay.querySelector("#dcui-settings-modal-title").textContent = label || "설정";
+      host.innerHTML = '<div class="dcui-settings-loading dcui-settings-load-failed">설정 데이터를 불러오지 못했습니다.<small>로그인 상태나 네트워크 연결을 확인한 뒤 다시 눌러 주세요.</small></div>';
       if (label.includes("이용자 메모")) settingsUserMemoOpen = false;
     },
 
@@ -4900,7 +4900,7 @@
 
     popupCandidates() {
       return [...document.querySelectorAll(".pop_wrap")].filter((node) => {
-        if (node.closest("#dcfmk-sidebar, #dcfmk-settings-modal, #alarmList, #alarmConf")) return false;
+        if (node.closest("#dcui-sidebar, #dcui-settings-modal, #alarmList, #alarmConf")) return false;
         if (["relation_popup", "visit_history_lyr", "my_favorite"].includes(node.id)) return false;
         return this.isVisible(node);
       });
@@ -4911,8 +4911,8 @@
     },
 
     open(source, label) {
-      const overlay = document.getElementById("dcfmk-settings-modal");
-      const host = overlay?.querySelector(".dcfmk-settings-modal-host");
+      const overlay = document.getElementById("dcui-settings-modal");
+      const host = overlay?.querySelector(".dcui-settings-modal-host");
       if (!overlay || !host || !source) return;
       if (settingsModalState?.primary === source && host.contains(source)) {
         this.moveAuxiliaryLayers();
@@ -4924,8 +4924,8 @@
       host.replaceChildren();
       settingsModalState = { primary: source, entries: [], observer: null, closing: false };
       const nativeTitle = cleanText(source.querySelector(".pop_head h3, .pop_head strong")?.textContent);
-      overlay.querySelector("#dcfmk-settings-modal-title").textContent = nativeTitle || label || "설정";
-      overlay.querySelector(".dcfmk-settings-modal-dialog").dataset.source = source.id || "";
+      overlay.querySelector("#dcui-settings-modal-title").textContent = nativeTitle || label || "설정";
+      overlay.querySelector(".dcui-settings-modal-dialog").dataset.source = source.id || "";
       this.moveLayer(source, false);
       overlay.hidden = false;
       this.positionPanel();
@@ -4953,12 +4953,12 @@
     },
 
     positionPanel() {
-      const overlay = document.getElementById("dcfmk-settings-modal");
-      const dialog = overlay?.querySelector(".dcfmk-settings-modal-dialog");
+      const overlay = document.getElementById("dcui-settings-modal");
+      const dialog = overlay?.querySelector(".dcui-settings-modal-dialog");
       const trigger = settingsModalLastTrigger;
       if (!dialog || !trigger?.isConnected) return;
       const anchor = trigger.closest("li") || trigger;
-      const card = trigger.closest(".dcfmk-gallery-settings") || trigger.closest("#dcfmk-sidebar") || anchor;
+      const card = trigger.closest(".dcui-gallery-settings") || trigger.closest("#dcui-sidebar") || anchor;
       const anchorRect = anchor.getBoundingClientRect();
       const cardRect = card.getBoundingClientRect();
       const edge = 12;
@@ -4986,7 +4986,7 @@
     },
 
     moveLayer(node, auxiliary) {
-      const host = document.querySelector("#dcfmk-settings-modal .dcfmk-settings-modal-host");
+      const host = document.querySelector("#dcui-settings-modal .dcui-settings-modal-host");
       if (!host || !node || settingsModalState?.entries.some((entry) => entry.node === node)) return;
       settingsModalState.entries.push({
         node,
@@ -4994,8 +4994,8 @@
         nextSibling: node.nextSibling,
         style: node.getAttribute("style"),
       });
-      node.classList.add("dcfmk-native-settings-layer");
-      node.classList.toggle("dcfmk-native-settings-auxiliary", auxiliary);
+      node.classList.add("dcui-native-settings-layer");
+      node.classList.toggle("dcui-native-settings-auxiliary", auxiliary);
       node.style.display = "block";
       node.style.position = "static";
       node.style.inset = "auto";
@@ -5023,7 +5023,7 @@
       }
       for (const node of primary.querySelectorAll(".pop_wrap")) {
         if (!this.isVisible(node)) continue;
-        node.classList.add("dcfmk-native-settings-nested");
+        node.classList.add("dcui-native-settings-nested");
       }
       this.fitControlText(primary);
       window.requestAnimationFrame(() => this.fitControlText(primary));
@@ -5047,11 +5047,11 @@
         if (!this.isVisible(node) || node.closest(".memo_list")) return;
         const computed = getComputedStyle(node);
         const computedSize = Number.parseFloat(computed.fontSize);
-        const measuredBase = node.dataset.dcfmkFitBaseFont
-          ? Number.parseFloat(node.dataset.dcfmkFitBaseFont)
+        const measuredBase = node.dataset.dcuiFitBaseFont
+          ? Number.parseFloat(node.dataset.dcuiFitBaseFont)
           : Math.min(computedSize, 9);
         if (!Number.isFinite(measuredBase) || measuredBase <= 0) return;
-        if (!node.dataset.dcfmkFitBaseFont) node.dataset.dcfmkFitBaseFont = String(measuredBase);
+        if (!node.dataset.dcuiFitBaseFont) node.dataset.dcuiFitBaseFont = String(measuredBase);
         const minimum = Math.min(measuredBase, 7.5);
         let size = measuredBase;
         node.style.setProperty("white-space", "nowrap", "important");
@@ -5072,7 +5072,7 @@
       settingsModalTimers = [];
       settingsModalArmObserver?.disconnect();
       settingsModalArmObserver = null;
-      const overlay = document.getElementById("dcfmk-settings-modal");
+      const overlay = document.getElementById("dcui-settings-modal");
       const state = settingsModalState;
       const closingUserMemo = settingsUserMemoOpen
         || settingsModalLastTrigger?.id === "btn_user_memo_set"
@@ -5080,9 +5080,9 @@
       if (closingUserMemo) settingsUserMemoOpen = false;
       if (!state) {
         if (overlay) overlay.hidden = true;
-        overlay?.querySelector(".dcfmk-settings-modal-host")?.replaceChildren();
-        document.querySelectorAll(".dcfmk-settings-trigger-active")
-          .forEach((node) => node.classList.remove("dcfmk-settings-trigger-active"));
+        overlay?.querySelector(".dcui-settings-modal-host")?.replaceChildren();
+        document.querySelectorAll(".dcui-settings-trigger-active")
+          .forEach((node) => node.classList.remove("dcui-settings-trigger-active"));
         if (settingsModalLastTrigger?.isConnected) settingsModalLastTrigger.focus({ preventScroll: true });
         settingsModalLastTrigger = null;
         return;
@@ -5101,9 +5101,9 @@
 
       for (const entry of [...state.entries].reverse()) {
         const { node, parent, nextSibling, style } = entry;
-        node.classList.remove("dcfmk-native-settings-layer", "dcfmk-native-settings-auxiliary");
-        node.querySelectorAll(".dcfmk-native-settings-nested")
-          .forEach((nested) => nested.classList.remove("dcfmk-native-settings-nested"));
+        node.classList.remove("dcui-native-settings-layer", "dcui-native-settings-auxiliary");
+        node.querySelectorAll(".dcui-native-settings-nested")
+          .forEach((nested) => nested.classList.remove("dcui-native-settings-nested"));
         if (style == null) node.removeAttribute("style");
         else node.setAttribute("style", style);
         if (!node.isConnected) continue;
@@ -5112,190 +5112,190 @@
         node.style.display = "none";
       }
       overlay.hidden = true;
-      overlay.querySelector(".dcfmk-settings-modal-host")?.replaceChildren();
+      overlay.querySelector(".dcui-settings-modal-host")?.replaceChildren();
       settingsModalState = null;
-      document.querySelectorAll(".dcfmk-settings-trigger-active")
-        .forEach((node) => node.classList.remove("dcfmk-settings-trigger-active"));
+      document.querySelectorAll(".dcui-settings-trigger-active")
+        .forEach((node) => node.classList.remove("dcui-settings-trigger-active"));
       if (settingsModalLastTrigger?.isConnected) settingsModalLastTrigger.focus({ preventScroll: true });
       settingsModalLastTrigger = null;
     },
 
     injectStyle() {
-      if (document.getElementById("dcfmk-settings-modal-style")) return;
+      if (document.getElementById("dcui-settings-modal-style")) return;
       const style = document.createElement("style");
-      style.id = "dcfmk-settings-modal-style";
+      style.id = "dcui-settings-modal-style";
       style.textContent = `
-        #dcfmk-settings-modal {
+        #dcui-settings-modal {
           position: fixed;
           z-index: 12000;
           inset: 0;
           box-sizing: border-box;
           background: transparent;
-          font-family: var(--dcfmk-font);
+          font-family: var(--dcui-font);
           pointer-events: none;
         }
-        .dcfmk-native-settings-anchor {
+        .dcui-native-settings-anchor {
           display: contents;
         }
-        .dcfmk-native-settings-anchor > .gall_issuebox {
+        .dcui-native-settings-anchor > .gall_issuebox {
           display: none !important;
         }
-        #dcfmk-settings-modal[hidden] {
+        #dcui-settings-modal[hidden] {
           display: none;
         }
-        #dcfmk-settings-modal .dcfmk-settings-modal-dialog {
+        #dcui-settings-modal .dcui-settings-modal-dialog {
           position: fixed;
           display: grid;
           grid-template-rows: 28px minmax(0, 1fr);
           box-sizing: border-box;
-          border: 1px solid var(--dcfmk-color-border-strong);
-          border-top: 2px solid var(--dcfmk-color-nav-light);
+          border: 1px solid var(--dcui-color-border-strong);
+          border-top: 2px solid var(--dcui-color-nav-light);
           border-radius: 0;
-          background: var(--dcfmk-color-surface);
+          background: var(--dcui-color-surface);
           box-shadow: 0 3px 12px rgba(28, 32, 52, 0.18);
           overflow: hidden;
           pointer-events: auto;
-          font: 8px/1.25 var(--dcfmk-font);
+          font: 8px/1.25 var(--dcui-font);
         }
-        #dcfmk-settings-modal .dcfmk-settings-modal-dialog > header {
+        #dcui-settings-modal .dcui-settings-modal-dialog > header {
           display: flex;
           align-items: center;
           justify-content: space-between;
           padding: 0 6px 0 8px;
-          border-bottom: 1px solid var(--dcfmk-color-border-strong);
-          background: var(--dcfmk-color-surface-muted);
-          color: var(--dcfmk-color-nav);
+          border-bottom: 1px solid var(--dcui-color-border-strong);
+          background: var(--dcui-color-surface-muted);
+          color: var(--dcui-color-nav);
           font-size: 10px;
         }
-        #dcfmk-settings-modal .dcfmk-settings-modal-close {
+        #dcui-settings-modal .dcui-settings-modal-close {
           width: 20px;
           height: 20px;
           border: 0;
           padding: 0;
           background: transparent;
-          color: var(--dcfmk-color-muted);
+          color: var(--dcui-color-muted);
           font: 16px/20px Arial, sans-serif;
           cursor: pointer;
         }
-        #dcfmk-settings-modal .dcfmk-settings-modal-close:hover {
-          color: var(--dcfmk-color-link);
+        #dcui-settings-modal .dcui-settings-modal-close:hover {
+          color: var(--dcui-color-link);
         }
-        #dcfmk-settings-modal .dcfmk-settings-modal-dialog[data-source="user_memo_config"] .dcfmk-settings-modal-close {
+        #dcui-settings-modal .dcui-settings-modal-dialog[data-source="user_memo_config"] .dcui-settings-modal-close {
           display: none !important;
         }
-        #dcfmk-settings-modal #user_memo_config > .pop_content > .poply_whiteclose {
+        #dcui-settings-modal #user_memo_config > .pop_content > .poply_whiteclose {
           display: none !important;
         }
-        #dcfmk-settings-modal .dcfmk-settings-modal-host {
+        #dcui-settings-modal .dcui-settings-modal-host {
           min-height: 0;
           overflow: auto;
           padding: 4px;
-          background: var(--dcfmk-color-surface);
+          background: var(--dcui-color-surface);
         }
-        #dcfmk-settings-modal .dcfmk-settings-loading {
+        #dcui-settings-modal .dcui-settings-loading {
           min-height: 54px;
           box-sizing: border-box;
           padding: 13px 9px;
-          border: 1px solid var(--dcfmk-color-border-soft);
-          background: var(--dcfmk-color-surface-notice);
-          color: var(--dcfmk-color-muted);
+          border: 1px solid var(--dcui-color-border-soft);
+          background: var(--dcui-color-surface-notice);
+          color: var(--dcui-color-muted);
           font-size: 9px;
           text-align: center;
         }
-        #dcfmk-settings-modal .dcfmk-settings-loading small {
+        #dcui-settings-modal .dcui-settings-loading small {
           display: block;
           margin-top: 4px;
-          color: var(--dcfmk-color-faint);
+          color: var(--dcui-color-faint);
           font-size: 8px;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer > .pop_content {
+        #dcui-settings-modal .dcui-native-settings-layer,
+        #dcui-settings-modal .dcui-native-settings-layer > .pop_content {
           box-sizing: border-box;
           max-width: 100%;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer {
+        #dcui-settings-modal .dcui-native-settings-layer {
           min-width: 0 !important;
           border: 0 !important;
           background: transparent !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer > .pop_content,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer.pop_content {
+        #dcui-settings-modal .dcui-native-settings-layer > .pop_content,
+        #dcui-settings-modal .dcui-native-settings-layer.pop_content {
           position: static !important;
           width: 100% !important;
           min-width: 0 !important;
           height: auto !important;
           margin: 0 !important;
-          border: 1px solid var(--dcfmk-color-border-strong) !important;
-          background: var(--dcfmk-color-surface) !important;
-          color: var(--dcfmk-color-text-soft);
-          font: 8px/1.25 var(--dcfmk-font) !important;
+          border: 1px solid var(--dcui-color-border-strong) !important;
+          background: var(--dcui-color-surface) !important;
+          color: var(--dcui-color-text-soft);
+          font: 8px/1.25 var(--dcui-font) !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer > .pop_content > .pop_head:first-child,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer > .poply_whiteclose,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer > .poply_bgblueclose,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer > .poply_greyclose,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer > .poply_bgclose,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer > .poply_close,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer > .pop_content > .poply_whiteclose,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer > .pop_content > .poply_bgblueclose,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer > .pop_content > .poply_greyclose,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer > .pop_content > .poply_bgclose,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer > .pop_content > .poply_close {
+        #dcui-settings-modal .dcui-native-settings-layer > .pop_content > .pop_head:first-child,
+        #dcui-settings-modal .dcui-native-settings-layer > .poply_whiteclose,
+        #dcui-settings-modal .dcui-native-settings-layer > .poply_bgblueclose,
+        #dcui-settings-modal .dcui-native-settings-layer > .poply_greyclose,
+        #dcui-settings-modal .dcui-native-settings-layer > .poply_bgclose,
+        #dcui-settings-modal .dcui-native-settings-layer > .poply_close,
+        #dcui-settings-modal .dcui-native-settings-layer > .pop_content > .poply_whiteclose,
+        #dcui-settings-modal .dcui-native-settings-layer > .pop_content > .poply_bgblueclose,
+        #dcui-settings-modal .dcui-native-settings-layer > .pop_content > .poply_greyclose,
+        #dcui-settings-modal .dcui-native-settings-layer > .pop_content > .poply_bgclose,
+        #dcui-settings-modal .dcui-native-settings-layer > .pop_content > .poply_close {
           display: none !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .inner {
+        #dcui-settings-modal .dcui-native-settings-layer .inner {
           box-sizing: border-box;
           max-width: 100%;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer > .pop_content > .inner,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer.pop_content > .inner {
+        #dcui-settings-modal .dcui-native-settings-layer > .pop_content > .inner,
+        #dcui-settings-modal .dcui-native-settings-layer.pop_content > .inner {
           width: 100% !important;
           padding: 5px 6px !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer button,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer input,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer textarea,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer select {
-          font-family: var(--dcfmk-font) !important;
+        #dcui-settings-modal .dcui-native-settings-layer button,
+        #dcui-settings-modal .dcui-native-settings-layer input,
+        #dcui-settings-modal .dcui-native-settings-layer textarea,
+        #dcui-settings-modal .dcui-native-settings-layer select {
+          font-family: var(--dcui-font) !important;
           font-size: 8px !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer p,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer h4,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer label,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer li,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer a {
+        #dcui-settings-modal .dcui-native-settings-layer p,
+        #dcui-settings-modal .dcui-native-settings-layer h4,
+        #dcui-settings-modal .dcui-native-settings-layer label,
+        #dcui-settings-modal .dcui-native-settings-layer li,
+        #dcui-settings-modal .dcui-native-settings-layer a {
           font-size: 8px !important;
           line-height: 1.25 !important;
           word-break: keep-all;
           overflow-wrap: break-word;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .cont_tit {
+        #dcui-settings-modal .dcui-native-settings-layer .cont_tit {
           font-size: 8px !important;
           line-height: 1.25 !important;
           white-space: nowrap;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .tabcontent,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .tabbox,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .set_cont,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .scrollarea,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .textarea_box,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .sch_box {
+        #dcui-settings-modal .dcui-native-settings-layer .tabcontent,
+        #dcui-settings-modal .dcui-native-settings-layer .tabbox,
+        #dcui-settings-modal .dcui-native-settings-layer .set_cont,
+        #dcui-settings-modal .dcui-native-settings-layer .scrollarea,
+        #dcui-settings-modal .dcui-native-settings-layer .textarea_box,
+        #dcui-settings-modal .dcui-native-settings-layer .sch_box {
           box-sizing: border-box;
           max-width: 100%;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer textarea,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer input[type="text"] {
+        #dcui-settings-modal .dcui-native-settings-layer textarea,
+        #dcui-settings-modal .dcui-native-settings-layer input[type="text"] {
           box-sizing: border-box;
           max-width: 100%;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer input[type="text"],
-        #dcfmk-settings-modal .dcfmk-native-settings-layer select {
+        #dcui-settings-modal .dcui-native-settings-layer input[type="text"],
+        #dcui-settings-modal .dcui-native-settings-layer select {
           height: 22px !important;
           min-height: 22px !important;
           padding: 2px 4px !important;
           line-height: 16px !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .tab_menubox {
+        #dcui-settings-modal .dcui-native-settings-layer .tab_menubox {
           display: flex;
           box-sizing: border-box !important;
           width: 100% !important;
@@ -5304,10 +5304,10 @@
           margin: 0 !important;
           padding: 0 !important;
           border: 0 !important;
-          border-bottom: 1px solid var(--dcfmk-color-nav-light) !important;
-          background: var(--dcfmk-color-surface-muted) !important;
+          border-bottom: 1px solid var(--dcui-color-nav-light) !important;
+          background: var(--dcui-color-surface-muted) !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .tab_menubox button {
+        #dcui-settings-modal .dcui-native-settings-layer .tab_menubox button {
           display: flex !important;
           box-sizing: border-box !important;
           min-width: 0;
@@ -5319,66 +5319,66 @@
           justify-content: center;
           margin: 0 !important;
           border: 0 !important;
-          border-right: 1px solid var(--dcfmk-color-border-strong) !important;
+          border-right: 1px solid var(--dcui-color-border-strong) !important;
           padding: 0 5px !important;
-          background: var(--dcfmk-color-surface-muted) !important;
-          color: var(--dcfmk-color-text-soft) !important;
-          font: 8px/21px var(--dcfmk-font) !important;
+          background: var(--dcui-color-surface-muted) !important;
+          color: var(--dcui-color-text-soft) !important;
+          font: 8px/21px var(--dcui-font) !important;
           cursor: pointer;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .tab_menubox button:last-child {
+        #dcui-settings-modal .dcui-native-settings-layer .tab_menubox button:last-child {
           border-right: 0 !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .tab_menubox button.on {
+        #dcui-settings-modal .dcui-native-settings-layer .tab_menubox button.on {
           position: relative;
           height: 23px !important;
           margin-bottom: 0 !important;
-          border: 1px solid var(--dcfmk-color-nav-light) !important;
-          border-bottom-color: var(--dcfmk-color-on-accent) !important;
-          background: var(--dcfmk-color-surface) !important;
-          color: var(--dcfmk-color-link) !important;
+          border: 1px solid var(--dcui-color-nav-light) !important;
+          border-bottom-color: var(--dcui-color-on-accent) !important;
+          background: var(--dcui-color-surface) !important;
+          color: var(--dcui-color-link) !important;
           font-weight: 700 !important;
           z-index: 1;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .tab_menubox button p {
+        #dcui-settings-modal .dcui-native-settings-layer .tab_menubox button p {
           display: block !important;
           margin: 0 !important;
           padding: 0 !important;
           font: inherit !important;
           white-space: nowrap !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .tab_menubox button .gallname,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .tab_menubox button p.gallname {
+        #dcui-settings-modal .dcui-native-settings-layer .tab_menubox button .gallname,
+        #dcui-settings-modal .dcui-native-settings-layer .tab_menubox button p.gallname {
           display: none !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .tab_menubox + .inner {
+        #dcui-settings-modal .dcui-native-settings-layer .tab_menubox + .inner {
           margin: 0 !important;
           padding: 4px 6px !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .tab_menubox + .inner > .tabcontent,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .tab_menubox + .inner > .tabcontent > .tabbox {
+        #dcui-settings-modal .dcui-native-settings-layer .tab_menubox + .inner > .tabcontent,
+        #dcui-settings-modal .dcui-native-settings-layer .tab_menubox + .inner > .tabcontent > .tabbox {
           margin-top: 0 !important;
           padding-top: 0 !important;
         }
-        #dcfmk-settings-modal #user_memo_setting > .tabbox,
-        #dcfmk-settings-modal #user_memo_cont,
-        #dcfmk-settings-modal #autozzal_setting_pop .tabcontent,
-        #dcfmk-settings-modal #headTail_lay .tabcontent {
+        #dcui-settings-modal #user_memo_setting > .tabbox,
+        #dcui-settings-modal #user_memo_cont,
+        #dcui-settings-modal #autozzal_setting_pop .tabcontent,
+        #dcui-settings-modal #headTail_lay .tabcontent {
           margin-top: 0 !important;
           padding-top: 0 !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .btn_box {
+        #dcui-settings-modal .dcui-native-settings-layer .btn_box {
           box-sizing: border-box;
           max-width: 100%;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .btn_box > button {
+        #dcui-settings-modal .dcui-native-settings-layer .btn_box > button {
           min-width: 44px !important;
           height: 22px !important;
           padding: 0 7px !important;
           line-height: 20px !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer > .pop_content > .btn_box,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer.pop_content > .btn_box {
+        #dcui-settings-modal .dcui-native-settings-layer > .pop_content > .btn_box,
+        #dcui-settings-modal .dcui-native-settings-layer.pop_content > .btn_box {
           position: static !important;
           display: flex !important;
           box-sizing: border-box !important;
@@ -5390,30 +5390,30 @@
           gap: 4px;
           margin: 0 !important;
           padding: 4px 6px !important;
-          border-top: 1px solid var(--dcfmk-color-border-strong);
+          border-top: 1px solid var(--dcui-color-border-strong);
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .pop_info {
+        #dcui-settings-modal .dcui-native-settings-layer .pop_info {
           box-sizing: border-box;
           min-height: 0 !important;
           padding: 5px 6px !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .pop_bg {
+        #dcui-settings-modal .dcui-native-settings-layer .pop_bg {
           display: none !important;
         }
-        #dcfmk-settings-modal #user_memo_config .umome_wrap,
-        #dcfmk-settings-modal #user_memo_setting,
-        #dcfmk-settings-modal #user_memo_setting > .tabbox,
-        #dcfmk-settings-modal #user_memo_cont,
-        #dcfmk-settings-modal #user_memo_table,
-        #dcfmk-settings-modal #user_memo_search {
+        #dcui-settings-modal #user_memo_config .umome_wrap,
+        #dcui-settings-modal #user_memo_setting,
+        #dcui-settings-modal #user_memo_setting > .tabbox,
+        #dcui-settings-modal #user_memo_cont,
+        #dcui-settings-modal #user_memo_table,
+        #dcui-settings-modal #user_memo_search {
           box-sizing: border-box !important;
           width: 100% !important;
           max-width: 100% !important;
           margin-left: 0 !important;
           margin-right: 0 !important;
         }
-        #dcfmk-settings-modal #user_memo_cont > .inr,
-        #dcfmk-settings-modal #user_memo_table > .inr.flex {
+        #dcui-settings-modal #user_memo_cont > .inr,
+        #dcui-settings-modal #user_memo_table > .inr.flex {
           display: flex !important;
           width: 100% !important;
           align-items: center;
@@ -5421,50 +5421,50 @@
           padding-left: 0 !important;
           padding-right: 0 !important;
         }
-        #dcfmk-settings-modal #user_memo_cont .cont_tit,
-        #dcfmk-settings-modal #user_memo_table .cont_tit {
+        #dcui-settings-modal #user_memo_cont .cont_tit,
+        #dcui-settings-modal #user_memo_table .cont_tit {
           min-width: 0;
           margin: 0 !important;
           font-size: 8px !important;
         }
-        #dcfmk-settings-modal #user_memo_cont .textarea_box,
-        #dcfmk-settings-modal #user_memo_cont textarea {
+        #dcui-settings-modal #user_memo_cont .textarea_box,
+        #dcui-settings-modal #user_memo_cont textarea {
           width: 100% !important;
         }
-        #dcfmk-settings-modal #user_memo_cont textarea {
+        #dcui-settings-modal #user_memo_cont textarea {
           min-height: 44px !important;
           padding: 4px !important;
           line-height: 1.3 !important;
           resize: vertical;
         }
-        #dcfmk-settings-modal #user_memo_cont .info_txt {
+        #dcui-settings-modal #user_memo_cont .info_txt {
           margin-top: 5px !important;
           font-size: 8px !important;
           word-break: keep-all;
         }
-        #dcfmk-settings-modal #user_memo_cont .info_txt p {
+        #dcui-settings-modal #user_memo_cont .info_txt p {
           margin: 1px 0 !important;
         }
-        #dcfmk-settings-modal #user_memo_table > .inr.flex {
+        #dcui-settings-modal #user_memo_table > .inr.flex {
           flex-wrap: wrap;
         }
-        #dcfmk-settings-modal #user_memo_table .btn_tabbox {
+        #dcui-settings-modal #user_memo_table .btn_tabbox {
           margin-left: auto;
           white-space: nowrap;
         }
-        #dcfmk-settings-modal #user_memo_table .btn_txtbox {
+        #dcui-settings-modal #user_memo_table .btn_txtbox {
           white-space: nowrap;
         }
-        #dcfmk-settings-modal #user_memo_table .btn_txtbox.copydel > button {
+        #dcui-settings-modal #user_memo_table .btn_txtbox.copydel > button {
           box-sizing: border-box !important;
           min-height: 22px !important;
           height: 22px !important;
           margin: 0 !important;
           padding: 0 6px !important;
-          border: 1px solid var(--dcfmk-color-border-strong) !important;
+          border: 1px solid var(--dcui-color-border-strong) !important;
           line-height: 20px !important;
         }
-        #dcfmk-settings-modal #user_memo_table .memo_list {
+        #dcui-settings-modal #user_memo_table .memo_list {
           box-sizing: border-box;
           width: 100% !important;
           max-width: 100% !important;
@@ -5474,7 +5474,7 @@
           overflow-x: hidden !important;
           overflow-y: auto !important;
         }
-        #dcfmk-settings-modal #user_memo_table .memo_list li {
+        #dcui-settings-modal #user_memo_table .memo_list li {
           position: relative !important;
           box-sizing: border-box !important;
           width: 100% !important;
@@ -5485,12 +5485,12 @@
           padding: 0 !important;
           list-style: none !important;
         }
-        #dcfmk-settings-modal #user_memo_table .memo_list li::after {
+        #dcui-settings-modal #user_memo_table .memo_list li::after {
           top: 50vh !important;
           bottom: auto !important;
         }
-        #dcfmk-settings-modal #user_memo_table .memo_list .btn-wrap,
-        #dcfmk-settings-modal #user_memo_table .memo_list .btn-wrap > .btn {
+        #dcui-settings-modal #user_memo_table .memo_list .btn-wrap,
+        #dcui-settings-modal #user_memo_table .memo_list .btn-wrap > .btn {
           box-sizing: border-box !important;
           width: 100% !important;
           max-width: 100% !important;
@@ -5500,7 +5500,7 @@
           padding: 0 3px !important;
           text-align: left !important;
         }
-        #dcfmk-settings-modal #user_memo_table .memo_list .checkbox {
+        #dcui-settings-modal #user_memo_table .memo_list .checkbox {
           display: flex !important;
           box-sizing: border-box !important;
           width: 100% !important;
@@ -5509,16 +5509,16 @@
           align-items: center !important;
           gap: 2px;
         }
-        #dcfmk-settings-modal #user_memo_table .memo_list label,
-        #dcfmk-settings-modal #user_memo_table .memo_list .nik,
-        #dcfmk-settings-modal #user_memo_table .memo_list .mone {
+        #dcui-settings-modal #user_memo_table .memo_list label,
+        #dcui-settings-modal #user_memo_table .memo_list .nik,
+        #dcui-settings-modal #user_memo_table .memo_list .mone {
           display: inline !important;
           margin: 0 !important;
           padding: 0 !important;
-          font: 8px/18px var(--dcfmk-font) !important;
+          font: 8px/18px var(--dcui-font) !important;
           white-space: nowrap !important;
         }
-        #dcfmk-settings-modal #user_memo_search {
+        #dcui-settings-modal #user_memo_search {
           display: flex !important;
           align-items: stretch;
           gap: 4px;
@@ -5527,7 +5527,7 @@
           margin: 4px 0 0 !important;
           padding: 0 !important;
         }
-        #dcfmk-settings-modal #user_memo_search .array_latest {
+        #dcui-settings-modal #user_memo_search .array_latest {
           position: relative !important;
           inset: 0 auto auto 0 !important;
           display: block !important;
@@ -5540,7 +5540,7 @@
           align-self: stretch !important;
           transform: translateY(-1px) !important;
         }
-        #dcfmk-settings-modal #user_memo_search .array_latest > .select_area {
+        #dcui-settings-modal #user_memo_search .array_latest > .select_area {
           position: relative !important;
           display: block !important;
           width: 60px !important;
@@ -5550,28 +5550,28 @@
           transform: none !important;
           overflow: hidden !important;
         }
-        #dcfmk-settings-modal #user_memo_search .intbox {
+        #dcui-settings-modal #user_memo_search .intbox {
           display: flex !important;
           min-width: 0;
           flex: 1;
           width: auto !important;
           margin: 0 !important;
         }
-        #dcfmk-settings-modal #user_memo_search .intbox input {
+        #dcui-settings-modal #user_memo_search .intbox input {
           min-width: 0;
           width: 100% !important;
           flex: 1;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer :is(.select_box, .ul_selectric),
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .select_area,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .intbox,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .intbox > :is(input, button) {
+        #dcui-settings-modal .dcui-native-settings-layer :is(.select_box, .ul_selectric),
+        #dcui-settings-modal .dcui-native-settings-layer .select_area,
+        #dcui-settings-modal .dcui-native-settings-layer .intbox,
+        #dcui-settings-modal .dcui-native-settings-layer .intbox > :is(input, button) {
           box-sizing: border-box !important;
           min-height: 22px !important;
           height: 22px !important;
           line-height: 20px !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .select_area {
+        #dcui-settings-modal .dcui-native-settings-layer .select_area {
           position: relative !important;
           width: 100% !important;
           margin: 0 !important;
@@ -5579,7 +5579,7 @@
           overflow: hidden !important;
           white-space: nowrap !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .select_area > .icon_option_more {
+        #dcui-settings-modal .dcui-native-settings-layer .select_area > .icon_option_more {
           position: absolute !important;
           inset: 50% 5px auto auto !important;
           display: block !important;
@@ -5593,7 +5593,7 @@
           padding: 0 !important;
           transform: translateY(-50%) !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .intbox {
+        #dcui-settings-modal .dcui-native-settings-layer .intbox {
           display: flex !important;
           min-width: 0 !important;
           align-items: stretch !important;
@@ -5601,15 +5601,15 @@
           margin: 0 !important;
           padding: 0 !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .intbox > input {
+        #dcui-settings-modal .dcui-native-settings-layer .intbox > input {
           min-width: 0 !important;
           flex: 1 1 auto;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .intbox > button {
+        #dcui-settings-modal .dcui-native-settings-layer .intbox > button {
           flex: 0 0 auto;
           margin: 0 !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer :is(
+        #dcui-settings-modal .dcui-native-settings-layer :is(
           .tab_menubox > button,
           .block_tab > button,
           .btn_tabbox > button,
@@ -5624,24 +5624,24 @@
           max-width: 100% !important;
           white-space: nowrap !important;
         }
-        #dcfmk-settings-modal #trusted_site_config .inner,
-        #dcfmk-settings-modal #trusted_site_table {
+        #dcui-settings-modal #trusted_site_config .inner,
+        #dcui-settings-modal #trusted_site_table {
           box-sizing: border-box !important;
           width: 100% !important;
           max-width: 100% !important;
         }
-        #dcfmk-settings-modal #trusted_site_config .trusted_site_wrap > .inner {
+        #dcui-settings-modal #trusted_site_config .trusted_site_wrap > .inner {
           height: auto !important;
           min-height: 0 !important;
           max-height: 270px !important;
           overflow: auto !important;
         }
-        #dcfmk-settings-modal #trusted_site_config .scrollarea {
+        #dcui-settings-modal #trusted_site_config .scrollarea {
           height: auto !important;
           max-height: 260px !important;
           overflow: auto !important;
         }
-        #dcfmk-settings-modal #trusted_site_config .empty_box {
+        #dcui-settings-modal #trusted_site_config .empty_box {
           display: flex;
           box-sizing: border-box !important;
           min-height: 110px !important;
@@ -5649,20 +5649,20 @@
           align-items: center;
           justify-content: center;
         }
-        #dcfmk-settings-modal #trusted_site_table .site_list {
+        #dcui-settings-modal #trusted_site_table .site_list {
           margin: 0;
           padding: 0;
           list-style: none;
         }
-        #dcfmk-settings-modal #trusted_site_table .site_list li {
+        #dcui-settings-modal #trusted_site_table .site_list li {
           display: flex;
           min-height: 23px;
           align-items: center;
           gap: 3px;
-          border-bottom: 1px solid var(--dcfmk-color-border-soft);
+          border-bottom: 1px solid var(--dcui-color-border-soft);
           padding: 0 3px;
         }
-        #dcfmk-settings-modal #trusted_site_table .site_list p {
+        #dcui-settings-modal #trusted_site_table .site_list p {
           min-width: 0;
           flex: 1;
           width: auto !important;
@@ -5673,7 +5673,7 @@
           white-space: nowrap;
           font-size: 8px !important;
         }
-        #dcfmk-settings-modal #trusted_site_table .site_list .del {
+        #dcui-settings-modal #trusted_site_table .site_list .del {
           display: inline-flex !important;
           box-sizing: border-box !important;
           width: 26px !important;
@@ -5689,51 +5689,51 @@
           padding: 0 !important;
           background: transparent;
           background-image: none !important;
-          color: var(--dcfmk-color-muted);
-          font: 8px/1.3 var(--dcfmk-font);
+          color: var(--dcui-color-muted);
+          font: 8px/1.3 var(--dcui-font);
           text-indent: 0 !important;
           white-space: nowrap !important;
           word-break: keep-all !important;
           overflow-wrap: normal !important;
           cursor: pointer;
         }
-        #dcfmk-settings-modal #trusted_site_table .site_list .del:hover {
-          color: var(--dcfmk-color-link);
+        #dcui-settings-modal #trusted_site_table .site_list .del:hover {
+          color: var(--dcui-color-link);
           text-decoration: underline;
         }
-        #dcfmk-settings-modal #user_block .block_setting_box,
-        #dcfmk-settings-modal #user_block .block_setting_box > .inner,
-        #dcfmk-settings-modal #user_block .tabcontent,
-        #dcfmk-settings-modal #user_block .pop_info,
-        #dcfmk-settings-modal #user_block .word_wrap,
-        #dcfmk-settings-modal #user_block .set_cont,
-        #dcfmk-settings-modal #user_block .block_list {
+        #dcui-settings-modal #user_block .block_setting_box,
+        #dcui-settings-modal #user_block .block_setting_box > .inner,
+        #dcui-settings-modal #user_block .tabcontent,
+        #dcui-settings-modal #user_block .pop_info,
+        #dcui-settings-modal #user_block .word_wrap,
+        #dcui-settings-modal #user_block .set_cont,
+        #dcui-settings-modal #user_block .block_list {
           box-sizing: border-box !important;
           width: 100% !important;
           max-width: 100% !important;
           margin-left: 0 !important;
           margin-right: 0 !important;
         }
-        #dcfmk-settings-modal #user_block .block_setting_box,
-        #dcfmk-settings-modal #user_block .block_setting_box > .inner,
-        #dcfmk-settings-modal #user_block .tabcontent,
-        #dcfmk-settings-modal #user_block .word_wrap {
+        #dcui-settings-modal #user_block .block_setting_box,
+        #dcui-settings-modal #user_block .block_setting_box > .inner,
+        #dcui-settings-modal #user_block .tabcontent,
+        #dcui-settings-modal #user_block .word_wrap {
           min-height: 0 !important;
           height: auto !important;
         }
-        #dcfmk-settings-modal #user_block .tabcontent {
+        #dcui-settings-modal #user_block .tabcontent {
           padding-left: 0 !important;
           padding-right: 0 !important;
           overflow-x: hidden !important;
         }
-        #dcfmk-settings-modal #user_block .block_tab {
+        #dcui-settings-modal #user_block .block_tab {
           display: flex !important;
           box-sizing: border-box !important;
           width: 100% !important;
           margin: 0 !important;
           padding: 0 !important;
         }
-        #dcfmk-settings-modal #user_block .block_tab button {
+        #dcui-settings-modal #user_block .block_tab button {
           width: auto !important;
           min-width: 0 !important;
           height: 23px !important;
@@ -5742,30 +5742,30 @@
           padding: 0 5px !important;
           line-height: 21px !important;
         }
-        #dcfmk-settings-modal #user_block,
-        #dcfmk-settings-modal #user_block button,
-        #dcfmk-settings-modal #user_block input,
-        #dcfmk-settings-modal #user_block label,
-        #dcfmk-settings-modal #user_block p,
-        #dcfmk-settings-modal #user_block h4 {
+        #dcui-settings-modal #user_block,
+        #dcui-settings-modal #user_block button,
+        #dcui-settings-modal #user_block input,
+        #dcui-settings-modal #user_block label,
+        #dcui-settings-modal #user_block p,
+        #dcui-settings-modal #user_block h4 {
           font-size: 8px !important;
           line-height: 1.25 !important;
         }
-        #dcfmk-settings-modal #user_block .pop_content.block_setting_wrap {
+        #dcui-settings-modal #user_block .pop_content.block_setting_wrap {
           overflow: hidden !important;
         }
-        #dcfmk-settings-modal #user_block .pop_content > .pop_info {
+        #dcui-settings-modal #user_block .pop_content > .pop_info {
           min-height: 0 !important;
           padding: 4px 6px !important;
         }
-        #dcfmk-settings-modal #user_block .pop_content > .pop_info p,
-        #dcfmk-settings-modal #user_block .tabcontent > .pop_info h4,
-        #dcfmk-settings-modal #user_block .tabcontent > .pop_info p {
+        #dcui-settings-modal #user_block .pop_content > .pop_info p,
+        #dcui-settings-modal #user_block .tabcontent > .pop_info h4,
+        #dcui-settings-modal #user_block .tabcontent > .pop_info p {
           width: auto !important;
           margin: 0 !important;
         }
-        #dcfmk-settings-modal #user_block .all_setting > .pop_info,
-        #dcfmk-settings-modal #user_block .part_setting > .part_schbox + .pop_info {
+        #dcui-settings-modal #user_block .all_setting > .pop_info,
+        #dcui-settings-modal #user_block .part_setting > .part_schbox + .pop_info {
           position: relative !important;
           display: grid !important;
           grid-template-columns: minmax(0, 1fr) 66px;
@@ -5778,27 +5778,27 @@
           row-gap: 2px;
           padding: 5px 6px !important;
         }
-        #dcfmk-settings-modal #user_block .all_setting > .pop_info h4,
-        #dcfmk-settings-modal #user_block .part_setting > .part_schbox + .pop_info h4 {
+        #dcui-settings-modal #user_block .all_setting > .pop_info h4,
+        #dcui-settings-modal #user_block .part_setting > .part_schbox + .pop_info h4 {
           grid-area: block-title;
           display: inline-flex !important;
           align-items: center;
           white-space: nowrap;
         }
-        #dcfmk-settings-modal #user_block .part_setting > .part_schbox + .pop_info h4 .icon_mini,
-        #dcfmk-settings-modal #user_block .part_setting > .part_schbox + .pop_info h4 .icon_person {
+        #dcui-settings-modal #user_block .part_setting > .part_schbox + .pop_info h4 .icon_mini,
+        #dcui-settings-modal #user_block .part_setting > .part_schbox + .pop_info h4 .icon_person {
           display: none !important;
         }
-        #dcfmk-settings-modal #user_block .all_setting > .pop_info p,
-        #dcfmk-settings-modal #user_block .part_setting > .part_schbox + .pop_info p {
+        #dcui-settings-modal #user_block .all_setting > .pop_info p,
+        #dcui-settings-modal #user_block .part_setting > .part_schbox + .pop_info p {
           grid-area: block-description;
           min-width: 0;
           padding-right: 0 !important;
           word-break: keep-all;
           overflow-wrap: normal;
         }
-        #dcfmk-settings-modal #user_block .all_setting > .pop_info .setting_onoff,
-        #dcfmk-settings-modal #user_block .part_setting > .part_schbox + .pop_info .setting_onoff {
+        #dcui-settings-modal #user_block .all_setting > .pop_info .setting_onoff,
+        #dcui-settings-modal #user_block .part_setting > .part_schbox + .pop_info .setting_onoff {
           position: static !important;
           grid-area: block-switch;
           width: 66px !important;
@@ -5806,17 +5806,17 @@
           justify-self: end;
           align-self: center;
         }
-        #dcfmk-settings-modal #user_block .word_wrap {
+        #dcui-settings-modal #user_block .word_wrap {
           padding: 0 6px !important;
         }
-        #dcfmk-settings-modal #user_block .set_cont.add_text {
+        #dcui-settings-modal #user_block .set_cont.add_text {
           grid-template-columns: 70px minmax(0, 1fr) 40px;
           min-height: 35px !important;
           height: auto !important;
           padding: 6px 0 !important;
-          border-bottom: 1px dashed var(--dcfmk-color-border-strong);
+          border-bottom: 1px dashed var(--dcui-color-border-strong);
         }
-        #dcfmk-settings-modal #user_block .set_cont.add_text .cont_tit {
+        #dcui-settings-modal #user_block .set_cont.add_text .cont_tit {
           display: block !important;
           justify-self: start;
           align-self: center;
@@ -5827,16 +5827,16 @@
           word-break: normal !important;
           overflow-wrap: normal !important;
         }
-        #dcfmk-settings-modal #user_block .set_cont.add_text .intxt,
-        #dcfmk-settings-modal #user_block .part_schbox .set_cont .intxt {
+        #dcui-settings-modal #user_block .set_cont.add_text .intxt,
+        #dcui-settings-modal #user_block .part_schbox .set_cont .intxt {
           box-sizing: border-box !important;
           width: 100% !important;
           min-width: 0 !important;
           height: 22px !important;
           padding: 2px 4px !important;
         }
-        #dcfmk-settings-modal #user_block .set_cont.add_text .btn_enroll,
-        #dcfmk-settings-modal #user_block .part_schbox .set_cont .btn_enroll {
+        #dcui-settings-modal #user_block .set_cont.add_text .btn_enroll,
+        #dcui-settings-modal #user_block .part_schbox .set_cont .btn_enroll {
           box-sizing: border-box !important;
           width: 40px !important;
           min-width: 40px !important;
@@ -5844,10 +5844,10 @@
           padding: 0 4px !important;
           line-height: 20px !important;
         }
-        #dcfmk-settings-modal #user_block .set_cont.add_text .block_list:empty {
+        #dcui-settings-modal #user_block .set_cont.add_text .block_list:empty {
           display: none !important;
         }
-        #dcfmk-settings-modal #user_block .set_cont.add_text .block_list:not(:empty) {
+        #dcui-settings-modal #user_block .set_cont.add_text .block_list:not(:empty) {
           display: flex !important;
           flex-wrap: wrap;
           gap: 3px 6px;
@@ -5855,16 +5855,16 @@
           height: auto !important;
           padding: 4px 0 0 !important;
         }
-        #dcfmk-settings-modal #user_block .part_setting > .pop_info:first-child {
+        #dcui-settings-modal #user_block .part_setting > .pop_info:first-child {
           display: block !important;
           min-height: 0 !important;
           padding: 5px 6px !important;
         }
-        #dcfmk-settings-modal #user_block .part_setting > .pop_info:first-child h4 {
+        #dcui-settings-modal #user_block .part_setting > .pop_info:first-child h4 {
           margin-bottom: 4px !important;
           white-space: nowrap;
         }
-        #dcfmk-settings-modal #user_block .block_list.gall {
+        #dcui-settings-modal #user_block .block_list.gall {
           display: flex !important;
           flex-wrap: wrap;
           align-items: center;
@@ -5873,14 +5873,14 @@
           overflow: auto;
           padding: 0 !important;
         }
-        #dcfmk-settings-modal #user_block .block_list.gall li,
-        #dcfmk-settings-modal #user_block .block_list.gall li > span {
+        #dcui-settings-modal #user_block .block_list.gall li,
+        #dcui-settings-modal #user_block .block_list.gall li > span {
           display: inline-flex !important;
           width: auto !important;
           align-items: center;
           white-space: nowrap;
         }
-        #dcfmk-settings-modal #user_block .block_list.gall li {
+        #dcui-settings-modal #user_block .block_list.gall li {
           min-height: 16px !important;
           height: 16px !important;
           gap: 2px;
@@ -5889,16 +5889,16 @@
           font-size: 8px !important;
           line-height: 16px !important;
         }
-        #dcfmk-settings-modal #user_block .block_list.gall li > span {
+        #dcui-settings-modal #user_block .block_list.gall li > span {
           min-width: 0;
           height: 16px !important;
-          font: 8px/16px var(--dcfmk-font) !important;
+          font: 8px/16px var(--dcui-font) !important;
         }
-        #dcfmk-settings-modal #user_block .block_list.gall .icon_mini,
-        #dcfmk-settings-modal #user_block .block_list.gall .icon_person {
+        #dcui-settings-modal #user_block .block_list.gall .icon_mini,
+        #dcui-settings-modal #user_block .block_list.gall .icon_person {
           display: none !important;
         }
-        #dcfmk-settings-modal #user_block .block_list.gall li > button {
+        #dcui-settings-modal #user_block .block_list.gall li > button {
           position: static !important;
           display: inline-flex !important;
           width: 12px !important;
@@ -5909,7 +5909,7 @@
           margin: 0 !important;
           padding: 0 !important;
         }
-        #dcfmk-settings-modal #user_block .part_schbox {
+        #dcui-settings-modal #user_block .part_schbox {
           display: grid !important;
           grid-template-columns: 62px minmax(0, 1fr);
           grid-template-areas:
@@ -5924,20 +5924,20 @@
           padding: 6px 6px 10px !important;
           overflow: visible !important;
         }
-        #dcfmk-settings-modal #user_block .part_schbox + .pop_info {
+        #dcui-settings-modal #user_block .part_schbox + .pop_info {
           margin-top: 5px !important;
-          border-top: 1px solid var(--dcfmk-color-border-strong);
+          border-top: 1px solid var(--dcui-color-border-strong);
         }
-        #dcfmk-settings-modal #user_block .part_schbox .fl {
+        #dcui-settings-modal #user_block .part_schbox .fl {
           float: none !important;
         }
-        #dcfmk-settings-modal #user_block .part_schbox .gall_sel_tit {
+        #dcui-settings-modal #user_block .part_schbox .gall_sel_tit {
           grid-area: gallery-title;
           margin: 0 !important;
           white-space: nowrap;
           align-self: center;
         }
-        #dcfmk-settings-modal #user_block .part_schbox > .fl:not(.gall_sel_tit):not(.set_cont) {
+        #dcui-settings-modal #user_block .part_schbox > .fl:not(.gall_sel_tit):not(.set_cont) {
           grid-area: gallery-types;
           display: flex !important;
           min-width: 0;
@@ -5945,19 +5945,19 @@
           gap: 7px;
           white-space: nowrap;
         }
-        #dcfmk-settings-modal #user_block .part_schbox .radiobox,
-        #dcfmk-settings-modal #user_block .part_schbox .radiobox label {
+        #dcui-settings-modal #user_block .part_schbox .radiobox,
+        #dcui-settings-modal #user_block .part_schbox .radiobox label {
           display: inline-flex !important;
           align-items: center;
           white-space: nowrap;
         }
-        #dcfmk-settings-modal #user_block .part_schbox .radiobox {
+        #dcui-settings-modal #user_block .part_schbox .radiobox {
           position: relative !important;
           height: 16px !important;
           gap: 2px;
           padding: 0 !important;
         }
-        #dcfmk-settings-modal #user_block .part_schbox .radiobox input {
+        #dcui-settings-modal #user_block .part_schbox .radiobox input {
           position: absolute !important;
           width: 12px !important;
           height: 12px !important;
@@ -5965,7 +5965,7 @@
           opacity: 0;
           cursor: pointer;
         }
-        #dcfmk-settings-modal #user_block .part_schbox .radiobox .checkmark {
+        #dcui-settings-modal #user_block .part_schbox .radiobox .checkmark {
           position: static !important;
           display: inline-block !important;
           order: -1;
@@ -5973,16 +5973,16 @@
           width: 10px !important;
           height: 10px !important;
           margin: 0 !important;
-          border: 1px solid var(--dcfmk-color-border-control) !important;
+          border: 1px solid var(--dcui-color-border-control) !important;
           border-radius: 50%;
-          background: var(--dcfmk-color-surface) !important;
+          background: var(--dcui-color-surface) !important;
         }
-        #dcfmk-settings-modal #user_block .part_schbox .radiobox input:checked + .checkmark {
-          border-color: var(--dcfmk-color-nav-light) !important;
-          background: var(--dcfmk-color-nav-light) !important;
-          box-shadow: inset 0 0 0 2px var(--dcfmk-color-control-highlight);
+        #dcui-settings-modal #user_block .part_schbox .radiobox input:checked + .checkmark {
+          border-color: var(--dcui-color-nav-light) !important;
+          background: var(--dcui-color-nav-light) !important;
+          box-shadow: inset 0 0 0 2px var(--dcui-color-control-highlight);
         }
-        #dcfmk-settings-modal #user_block .part_schbox > .set_cont {
+        #dcui-settings-modal #user_block .part_schbox > .set_cont {
           grid-area: gallery-search;
           display: grid !important;
           grid-template-columns: minmax(0, 1fr) 40px;
@@ -5990,7 +5990,7 @@
           min-height: 0 !important;
           padding: 0 !important;
         }
-        #dcfmk-settings-modal #user_block .part_schbox .block_sch_gall {
+        #dcui-settings-modal #user_block .part_schbox .block_sch_gall {
           grid-area: gallery-results;
           position: static !important;
           float: none !important;
@@ -6003,25 +6003,25 @@
           margin: 0 !important;
           padding: 0 !important;
         }
-        #dcfmk-settings-modal #user_block .part_schbox .block_sch_gall:empty {
+        #dcui-settings-modal #user_block .part_schbox .block_sch_gall:empty {
           display: none !important;
         }
-        #dcfmk-settings-modal #user_block .part_schbox .block_sch_gall:not(:empty) {
+        #dcui-settings-modal #user_block .part_schbox .block_sch_gall:not(:empty) {
           display: block !important;
-          border: 1px solid var(--dcfmk-color-border-strong);
+          border: 1px solid var(--dcui-color-border-strong);
           padding: 3px 5px !important;
         }
-        #dcfmk-settings-modal #user_block .part_schbox .block_sch_gall li {
+        #dcui-settings-modal #user_block .part_schbox .block_sch_gall li {
           min-height: 18px !important;
           margin: 0 !important;
           padding: 0 !important;
-          font: 8px/18px var(--dcfmk-font) !important;
+          font: 8px/18px var(--dcui-font) !important;
         }
-        #dcfmk-settings-modal #user_block .part_schbox .empty_sch_gall {
+        #dcui-settings-modal #user_block .part_schbox .empty_sch_gall {
           grid-area: gallery-empty;
           margin: 0 !important;
         }
-        #dcfmk-settings-modal #user_block .pop_content.block_setting_wrap > .btn_box {
+        #dcui-settings-modal #user_block .pop_content.block_setting_wrap > .btn_box {
           position: static !important;
           display: flex !important;
           min-height: 30px !important;
@@ -6031,125 +6031,125 @@
           gap: 4px;
           margin: 0 !important;
           padding: 4px 6px !important;
-          border-top: 1px solid var(--dcfmk-color-border-strong);
+          border-top: 1px solid var(--dcui-color-border-strong);
         }
-        #dcfmk-settings-modal #autozzal_setting_pop .jjalbang_set,
-        #dcfmk-settings-modal #autozzal_setting_pop .tabcontent,
-        #dcfmk-settings-modal #autozzal_setting_pop .scrollarea,
-        #dcfmk-settings-modal #headTail_lay .txtmark_setting_wrap,
-        #dcfmk-settings-modal #headTail_lay .tabcontent,
-        #dcfmk-settings-modal #headTail_lay .tabbox,
-        #dcfmk-settings-modal #headTail_lay .set_cont {
+        #dcui-settings-modal #autozzal_setting_pop .jjalbang_set,
+        #dcui-settings-modal #autozzal_setting_pop .tabcontent,
+        #dcui-settings-modal #autozzal_setting_pop .scrollarea,
+        #dcui-settings-modal #headTail_lay .txtmark_setting_wrap,
+        #dcui-settings-modal #headTail_lay .tabcontent,
+        #dcui-settings-modal #headTail_lay .tabbox,
+        #dcui-settings-modal #headTail_lay .set_cont {
           box-sizing: border-box !important;
           width: 100% !important;
           max-width: 100% !important;
           margin-left: 0 !important;
           margin-right: 0 !important;
         }
-        #dcfmk-settings-modal #autozzal_setting_pop .jjalbang_list img,
-        #dcfmk-settings-modal #autozzal_setting_pop .jjalbang_list .jjal {
+        #dcui-settings-modal #autozzal_setting_pop .jjalbang_list img,
+        #dcui-settings-modal #autozzal_setting_pop .jjalbang_list .jjal {
           max-width: 125px !important;
           max-height: 125px !important;
           object-fit: contain;
         }
-        #dcfmk-settings-modal #autozzal_setting_pop #autozzal_setting > .inner,
-        #dcfmk-settings-modal #autozzal_setting_pop #autozzal_setting > .inner > .tabcontent,
-        #dcfmk-settings-modal #autozzal_setting_pop .jjalbang_set .scrollarea,
-        #dcfmk-settings-modal #autozzal_setting_pop .jjalbang_set .empty_box {
+        #dcui-settings-modal #autozzal_setting_pop #autozzal_setting > .inner,
+        #dcui-settings-modal #autozzal_setting_pop #autozzal_setting > .inner > .tabcontent,
+        #dcui-settings-modal #autozzal_setting_pop .jjalbang_set .scrollarea,
+        #dcui-settings-modal #autozzal_setting_pop .jjalbang_set .empty_box {
           height: auto !important;
           min-height: 0 !important;
         }
-        #dcfmk-settings-modal #autozzal_setting_pop #autozzal_setting > .inner {
+        #dcui-settings-modal #autozzal_setting_pop #autozzal_setting > .inner {
           max-height: 330px !important;
           overflow: auto !important;
         }
-        #dcfmk-settings-modal #autozzal_setting_pop .jjalbang_set .scrollarea {
+        #dcui-settings-modal #autozzal_setting_pop .jjalbang_set .scrollarea {
           max-height: 220px !important;
         }
-        #dcfmk-settings-modal #autozzal_setting_pop .jjalbang_set .empty_box {
+        #dcui-settings-modal #autozzal_setting_pop .jjalbang_set .empty_box {
           padding: 10px 6px !important;
         }
-        #dcfmk-settings-modal #headTail_lay .pop_info,
-        #dcfmk-settings-modal #headTail_lay .set_cont > .inr {
+        #dcui-settings-modal #headTail_lay .pop_info,
+        #dcui-settings-modal #headTail_lay .set_cont > .inr {
           box-sizing: border-box !important;
           width: 100% !important;
         }
-        #dcfmk-settings-modal #headTail_lay .set_cont > .inr {
+        #dcui-settings-modal #headTail_lay .set_cont > .inr {
           display: flex !important;
           min-height: 21px;
           align-items: center;
           gap: 5px;
         }
-        #dcfmk-settings-modal #headTail_lay .textarea_box,
-        #dcfmk-settings-modal #headTail_lay textarea {
+        #dcui-settings-modal #headTail_lay .textarea_box,
+        #dcui-settings-modal #headTail_lay textarea {
           width: 100% !important;
         }
-        #dcfmk-settings-modal #headTail_lay textarea {
+        #dcui-settings-modal #headTail_lay textarea {
           min-height: 38px !important;
           padding: 4px !important;
           line-height: 1.3 !important;
           resize: vertical;
         }
-        #dcfmk-settings-modal #headTail_lay label,
-        #dcfmk-settings-modal #headTail_lay h4,
-        #dcfmk-settings-modal #headTail_lay p,
-        #dcfmk-settings-modal #headTail_lay .tit {
+        #dcui-settings-modal #headTail_lay label,
+        #dcui-settings-modal #headTail_lay h4,
+        #dcui-settings-modal #headTail_lay p,
+        #dcui-settings-modal #headTail_lay .tit {
           font-size: 8px !important;
           line-height: 1.25 !important;
         }
-        #dcfmk-settings-modal #spoiler_set_lyr .spoiler_setting_wrap,
-        #dcfmk-settings-modal #spoiler_set_lyr .inner,
-        #dcfmk-settings-modal #spoiler_set_lyr .set_cont {
+        #dcui-settings-modal #spoiler_set_lyr .spoiler_setting_wrap,
+        #dcui-settings-modal #spoiler_set_lyr .inner,
+        #dcui-settings-modal #spoiler_set_lyr .set_cont {
           box-sizing: border-box !important;
           width: 100% !important;
           max-width: 100% !important;
         }
-        #dcfmk-settings-modal #spoiler_set_lyr .set_cont {
+        #dcui-settings-modal #spoiler_set_lyr .set_cont {
           position: relative;
           min-height: 40px !important;
           padding: 5px 40px 5px 6px !important;
         }
-        #dcfmk-settings-modal #spoiler_set_lyr .set_cont .tit,
-        #dcfmk-settings-modal #spoiler_set_lyr .set_cont .txt {
+        #dcui-settings-modal #spoiler_set_lyr .set_cont .tit,
+        #dcui-settings-modal #spoiler_set_lyr .set_cont .txt {
           width: auto !important;
           margin: 0 !important;
         }
-        #dcfmk-settings-modal #spoiler_set_lyr .set_cont .tit {
+        #dcui-settings-modal #spoiler_set_lyr .set_cont .tit {
           font-size: 8px !important;
           line-height: 1.25 !important;
         }
-        #dcfmk-settings-modal #spoiler_set_lyr .set_cont .txt,
-        #dcfmk-settings-modal #spoiler_set_lyr .pop_info {
+        #dcui-settings-modal #spoiler_set_lyr .set_cont .txt,
+        #dcui-settings-modal #spoiler_set_lyr .pop_info {
           font-size: 8px !important;
           line-height: 1.25 !important;
         }
-        #dcfmk-settings-modal #user_block .pop_info p {
+        #dcui-settings-modal #user_block .pop_info p {
           white-space: normal !important;
         }
-        #dcfmk-settings-modal #user_block .set_cont.add_text {
+        #dcui-settings-modal #user_block .set_cont.add_text {
           display: grid !important;
           grid-template-columns: minmax(66px, 78px) minmax(0, 1fr) auto;
           align-items: center;
           gap: 4px;
         }
-        #dcfmk-settings-modal #user_block .set_cont.add_text .cont_tit {
+        #dcui-settings-modal #user_block .set_cont.add_text .cont_tit {
           position: static !important;
           width: auto !important;
           margin: 0 !important;
         }
-        #dcfmk-settings-modal #user_block .set_cont.add_text .intxt {
+        #dcui-settings-modal #user_block .set_cont.add_text .intxt {
           width: 100% !important;
           min-width: 0 !important;
         }
-        #dcfmk-settings-modal #user_block .set_cont.add_text .btn_enroll {
+        #dcui-settings-modal #user_block .set_cont.add_text .btn_enroll {
           position: static !important;
           margin: 0 !important;
         }
-        #dcfmk-settings-modal #user_block .set_cont.add_text .block_list {
+        #dcui-settings-modal #user_block .set_cont.add_text .block_list {
           grid-column: 2 / -1;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .dcfmk-native-settings-nested,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer.dcfmk-native-settings-auxiliary {
+        #dcui-settings-modal .dcui-native-settings-layer .dcui-native-settings-nested,
+        #dcui-settings-modal .dcui-native-settings-layer.dcui-native-settings-auxiliary {
           position: relative !important;
           inset: auto !important;
           width: 100% !important;
@@ -6158,8 +6158,8 @@
           margin: 7px 0 0 !important;
           transform: none !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer.dcfmk-native-settings-auxiliary > .pop_content > .pop_head:first-child,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .dcfmk-native-settings-nested > .pop_content > .pop_head:first-child {
+        #dcui-settings-modal .dcui-native-settings-layer.dcui-native-settings-auxiliary > .pop_content > .pop_head:first-child,
+        #dcui-settings-modal .dcui-native-settings-layer .dcui-native-settings-nested > .pop_content > .pop_head:first-child {
           position: relative !important;
           display: flex !important;
           box-sizing: border-box !important;
@@ -6170,19 +6170,19 @@
           margin: 0 !important;
           padding: 0 25px 0 7px !important;
           border: 0 !important;
-          border-bottom: 1px solid var(--dcfmk-color-border-strong) !important;
-          background: var(--dcfmk-color-surface-muted) !important;
+          border-bottom: 1px solid var(--dcui-color-border-strong) !important;
+          background: var(--dcui-color-surface-muted) !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer.dcfmk-native-settings-auxiliary > .pop_content > .pop_head:first-child :is(h3, strong),
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .dcfmk-native-settings-nested > .pop_content > .pop_head:first-child :is(h3, strong) {
+        #dcui-settings-modal .dcui-native-settings-layer.dcui-native-settings-auxiliary > .pop_content > .pop_head:first-child :is(h3, strong),
+        #dcui-settings-modal .dcui-native-settings-layer .dcui-native-settings-nested > .pop_content > .pop_head:first-child :is(h3, strong) {
           margin: 0 !important;
           padding: 0 !important;
-          color: var(--dcfmk-color-text-soft) !important;
-          font: 700 9px/23px var(--dcfmk-font) !important;
+          color: var(--dcui-color-text-soft) !important;
+          font: 700 9px/23px var(--dcui-font) !important;
           white-space: nowrap !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-auxiliary > :is(.poply_whiteclose, .poply_bgblueclose, .poply_greyclose, .poply_bgclose, .poply_close, .btn_close),
-        #dcfmk-settings-modal .dcfmk-native-settings-nested > :is(.poply_whiteclose, .poply_bgblueclose, .poply_greyclose, .poply_bgclose, .poply_close, .btn_close) {
+        #dcui-settings-modal .dcui-native-settings-auxiliary > :is(.poply_whiteclose, .poply_bgblueclose, .poply_greyclose, .poply_bgclose, .poply_close, .btn_close),
+        #dcui-settings-modal .dcui-native-settings-nested > :is(.poply_whiteclose, .poply_bgblueclose, .poply_greyclose, .poply_bgclose, .poply_close, .btn_close) {
           position: absolute !important;
           top: 3px !important;
           right: 4px !important;
@@ -6200,163 +6200,163 @@
           font-size: 0 !important;
           cursor: pointer !important;
         }
-        #dcfmk-settings-modal .checkbox {
+        #dcui-settings-modal .checkbox {
           position: relative !important;
           display: inline-flex;
           align-items: center;
           gap: 4px;
         }
-        #dcfmk-settings-modal .checkbox input[type="checkbox"] {
+        #dcui-settings-modal .checkbox input[type="checkbox"] {
           position: absolute !important;
           width: 1px !important;
           height: 1px !important;
           opacity: 0;
           pointer-events: none;
         }
-        #dcfmk-settings-modal .checkbox .checkmark {
+        #dcui-settings-modal .checkbox .checkmark {
           position: relative !important;
           display: inline-block;
           flex: 0 0 12px;
           width: 12px !important;
           height: 12px !important;
-          border: 1px solid var(--dcfmk-color-border-control) !important;
+          border: 1px solid var(--dcui-color-border-control) !important;
           border-radius: 2px;
-          background: var(--dcfmk-color-surface) !important;
+          background: var(--dcui-color-surface) !important;
           background-image: none !important;
         }
-        #dcfmk-settings-modal .checkbox input[type="checkbox"]:checked + .checkmark {
-          border-color: var(--dcfmk-color-nav-light) !important;
-          background: var(--dcfmk-color-nav-light) !important;
+        #dcui-settings-modal .checkbox input[type="checkbox"]:checked + .checkmark {
+          border-color: var(--dcui-color-nav-light) !important;
+          background: var(--dcui-color-nav-light) !important;
         }
-        #dcfmk-settings-modal .checkbox input[type="checkbox"]:checked + .checkmark::after {
+        #dcui-settings-modal .checkbox input[type="checkbox"]:checked + .checkmark::after {
           position: absolute;
           top: 1px;
           left: 3px;
           width: 3px;
           height: 6px;
-          border: solid var(--dcfmk-color-on-accent);
+          border: solid var(--dcui-color-on-accent);
           border-width: 0 2px 2px 0;
           content: "";
           transform: rotate(45deg);
         }
         /* The native settings were compressed aggressively to fit the side panel.
            Keep the compact layout, but restore one readable size step throughout. */
-        #dcfmk-settings-modal .dcfmk-settings-modal-dialog {
+        #dcui-settings-modal .dcui-settings-modal-dialog {
           grid-template-rows: 30px minmax(0, 1fr);
           font-size: 9px;
           line-height: 1.3;
         }
-        #dcfmk-settings-modal .dcfmk-settings-modal-dialog > header {
+        #dcui-settings-modal .dcui-settings-modal-dialog > header {
           padding-right: 7px;
           padding-left: 9px;
           font-size: 11px;
         }
-        #dcfmk-settings-modal .dcfmk-settings-modal-host {
+        #dcui-settings-modal .dcui-settings-modal-host {
           padding: 5px;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer > .pop_content,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer.pop_content {
+        #dcui-settings-modal .dcui-native-settings-layer > .pop_content,
+        #dcui-settings-modal .dcui-native-settings-layer.pop_content {
           font-size: 9px !important;
           line-height: 1.3 !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer :is(button, input, textarea, select),
-        #dcfmk-settings-modal .dcfmk-native-settings-layer :is(p, h4, label, li, a, .cont_tit),
-        #dcfmk-settings-modal #user_block :is(button, input, label, p, h4),
-        #dcfmk-settings-modal #headTail_lay :is(label, h4, p, .tit),
-        #dcfmk-settings-modal #spoiler_set_lyr :is(.set_cont .tit, .set_cont .txt, .pop_info) {
+        #dcui-settings-modal .dcui-native-settings-layer :is(button, input, textarea, select),
+        #dcui-settings-modal .dcui-native-settings-layer :is(p, h4, label, li, a, .cont_tit),
+        #dcui-settings-modal #user_block :is(button, input, label, p, h4),
+        #dcui-settings-modal #headTail_lay :is(label, h4, p, .tit),
+        #dcui-settings-modal #spoiler_set_lyr :is(.set_cont .tit, .set_cont .txt, .pop_info) {
           font-size: 9px !important;
           line-height: 1.3 !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer input[type="text"],
-        #dcfmk-settings-modal .dcfmk-native-settings-layer select,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer :is(.select_box, .ul_selectric),
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .select_area,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .intbox,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .intbox > :is(input, button) {
+        #dcui-settings-modal .dcui-native-settings-layer input[type="text"],
+        #dcui-settings-modal .dcui-native-settings-layer select,
+        #dcui-settings-modal .dcui-native-settings-layer :is(.select_box, .ul_selectric),
+        #dcui-settings-modal .dcui-native-settings-layer .select_area,
+        #dcui-settings-modal .dcui-native-settings-layer .intbox,
+        #dcui-settings-modal .dcui-native-settings-layer .intbox > :is(input, button) {
           min-height: 24px !important;
           height: 24px !important;
           line-height: 22px !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .tab_menubox,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .tab_menubox button,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .tab_menubox button.on,
-        #dcfmk-settings-modal #user_block .block_tab button {
+        #dcui-settings-modal .dcui-native-settings-layer .tab_menubox,
+        #dcui-settings-modal .dcui-native-settings-layer .tab_menubox button,
+        #dcui-settings-modal .dcui-native-settings-layer .tab_menubox button.on,
+        #dcui-settings-modal #user_block .block_tab button {
           min-height: 25px !important;
           height: 25px !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .tab_menubox button,
-        #dcfmk-settings-modal #user_block .block_tab button {
+        #dcui-settings-modal .dcui-native-settings-layer .tab_menubox button,
+        #dcui-settings-modal #user_block .block_tab button {
           font-size: 9px !important;
           line-height: 23px !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .btn_box > button,
-        #dcfmk-settings-modal #user_memo_table .btn_txtbox.copydel > button {
+        #dcui-settings-modal .dcui-native-settings-layer .btn_box > button,
+        #dcui-settings-modal #user_memo_table .btn_txtbox.copydel > button {
           min-height: 24px !important;
           height: 24px !important;
           line-height: 22px !important;
         }
-        #dcfmk-settings-modal #user_memo_table .memo_list li,
-        #dcfmk-settings-modal #user_memo_table .memo_list .btn-wrap,
-        #dcfmk-settings-modal #user_memo_table .memo_list .btn-wrap > .btn {
+        #dcui-settings-modal #user_memo_table .memo_list li,
+        #dcui-settings-modal #user_memo_table .memo_list .btn-wrap,
+        #dcui-settings-modal #user_memo_table .memo_list .btn-wrap > .btn {
           min-height: 20px !important;
           height: 20px !important;
         }
-        #dcfmk-settings-modal #user_memo_table .memo_list :is(label, .nik, .mone) {
+        #dcui-settings-modal #user_memo_table .memo_list :is(label, .nik, .mone) {
           font-size: 9px !important;
           line-height: 20px !important;
         }
-        #dcfmk-settings-modal #user_memo_search {
+        #dcui-settings-modal #user_memo_search {
           min-height: 24px !important;
           height: 24px !important;
         }
-        #dcfmk-settings-modal #user_memo_search .array_latest,
-        #dcfmk-settings-modal #user_memo_search .array_latest > .select_area {
+        #dcui-settings-modal #user_memo_search .array_latest,
+        #dcui-settings-modal #user_memo_search .array_latest > .select_area {
           flex-basis: 66px;
           width: 66px !important;
           min-width: 66px !important;
           max-width: 66px !important;
         }
-        #dcfmk-settings-modal #trusted_site_table .site_list li {
+        #dcui-settings-modal #trusted_site_table .site_list li {
           min-height: 25px;
         }
-        #dcfmk-settings-modal #trusted_site_table .site_list :is(p, .del) {
+        #dcui-settings-modal #trusted_site_table .site_list :is(p, .del) {
           font-size: 9px !important;
         }
-        #dcfmk-settings-modal #user_block .set_cont.add_text {
+        #dcui-settings-modal #user_block .set_cont.add_text {
           min-height: 39px !important;
         }
-        #dcfmk-settings-modal #user_block .set_cont.add_text .intxt,
-        #dcfmk-settings-modal #user_block .part_schbox .set_cont .intxt,
-        #dcfmk-settings-modal #user_block .set_cont.add_text .btn_enroll,
-        #dcfmk-settings-modal #user_block .part_schbox .set_cont .btn_enroll {
+        #dcui-settings-modal #user_block .set_cont.add_text .intxt,
+        #dcui-settings-modal #user_block .part_schbox .set_cont .intxt,
+        #dcui-settings-modal #user_block .set_cont.add_text .btn_enroll,
+        #dcui-settings-modal #user_block .part_schbox .set_cont .btn_enroll {
           height: 24px !important;
           line-height: 22px !important;
         }
-        #dcfmk-settings-modal #user_block .block_list.gall li,
-        #dcfmk-settings-modal #user_block .block_list.gall li > span {
+        #dcui-settings-modal #user_block .block_list.gall li,
+        #dcui-settings-modal #user_block .block_list.gall li > span {
           min-height: 18px !important;
           height: 18px !important;
           font-size: 9px !important;
           line-height: 18px !important;
         }
-        #dcfmk-settings-modal #user_block .part_schbox .block_sch_gall li {
+        #dcui-settings-modal #user_block .part_schbox .block_sch_gall li {
           min-height: 20px !important;
           font-size: 9px !important;
           line-height: 20px !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer.dcfmk-native-settings-auxiliary > .pop_content > .pop_head:first-child,
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .dcfmk-native-settings-nested > .pop_content > .pop_head:first-child {
+        #dcui-settings-modal .dcui-native-settings-layer.dcui-native-settings-auxiliary > .pop_content > .pop_head:first-child,
+        #dcui-settings-modal .dcui-native-settings-layer .dcui-native-settings-nested > .pop_content > .pop_head:first-child {
           min-height: 26px !important;
           height: 26px !important;
         }
-        #dcfmk-settings-modal .dcfmk-native-settings-layer.dcfmk-native-settings-auxiliary > .pop_content > .pop_head:first-child :is(h3, strong),
-        #dcfmk-settings-modal .dcfmk-native-settings-layer .dcfmk-native-settings-nested > .pop_content > .pop_head:first-child :is(h3, strong) {
+        #dcui-settings-modal .dcui-native-settings-layer.dcui-native-settings-auxiliary > .pop_content > .pop_head:first-child :is(h3, strong),
+        #dcui-settings-modal .dcui-native-settings-layer .dcui-native-settings-nested > .pop_content > .pop_head:first-child :is(h3, strong) {
           font-size: 10px !important;
           line-height: 25px !important;
         }
-        html.dcfmk-enabled #dcfmk-sidebar .setting_list li.dcfmk-settings-trigger-active > button {
-          background: var(--dcfmk-color-surface-selected);
-          color: var(--dcfmk-color-link);
+        html.dcui-enabled #dcui-sidebar .setting_list li.dcui-settings-trigger-active > button {
+          background: var(--dcui-color-surface-selected);
+          color: var(--dcui-color-link);
           font-weight: 700;
         }
       `;
@@ -6373,8 +6373,8 @@
       const listTable = DcAdapter.listTable();
       if (!listRoot || !listTable) return null;
 
-      listRoot.classList.add("dcfmk-list");
-      listTable.classList.add("dcfmk-list-table");
+      listRoot.classList.add("dcui-list");
+      listTable.classList.add("dcui-list-table");
       this.decorateRows();
       this.decorateTable(listTable);
       this.decorateControls();
@@ -6389,7 +6389,7 @@
         ? new URL(location.href).searchParams.get("no")
         : null;
       for (const row of DcAdapter.queryAll("table.gall_list tr.ub-content", root)) {
-        if (row.dataset.dcfmkDecorated === "true") continue;
+        if (row.dataset.dcuiDecorated === "true") continue;
 
         const numberText = cleanText(row.querySelector(".gall_num")?.textContent);
         const subjectText = cleanText(row.querySelector(".gall_subject")?.textContent);
@@ -6401,11 +6401,11 @@
         } catch (_error) {
           // Keep the number cell fallback for malformed links.
         }
-        row.classList.toggle("dcfmk-row-notice", rowType === "icon_notice" || numberText === "공지");
-        row.classList.toggle("dcfmk-row-survey", numberText === "설문");
-        row.classList.toggle("dcfmk-row-ad", numberText === "AD" || subjectText === "AD" || Boolean(row.querySelector(".icon_ad")));
-        row.classList.toggle("dcfmk-current-post", Boolean(currentPostNo && rowPostNo === currentPostNo));
-        row.dataset.dcfmkDecorated = "true";
+        row.classList.toggle("dcui-row-notice", rowType === "icon_notice" || numberText === "공지");
+        row.classList.toggle("dcui-row-survey", numberText === "설문");
+        row.classList.toggle("dcui-row-ad", numberText === "AD" || subjectText === "AD" || Boolean(row.querySelector(".icon_ad")));
+        row.classList.toggle("dcui-current-post", Boolean(currentPostNo && rowPostNo === currentPostNo));
+        row.dataset.dcuiDecorated = "true";
       }
     },
 
@@ -6416,23 +6416,23 @@
       const numberHeader = listTable.querySelector("thead .gall_num") || headerByText("번호");
       const subjectHeader = listTable.querySelector("thead .gall_subject") || headerByText("말머리");
       const hasSubjectColumn = rows.some((row) => row.querySelector(".gall_subject"));
-      listTable.classList.toggle("dcfmk-has-subject-column", hasSubjectColumn);
+      listTable.classList.toggle("dcui-has-subject-column", hasSubjectColumn);
 
       if (numberHeader) {
         const label = hasSubjectColumn ? "번호" : "말머리";
         if (cleanText(numberHeader.textContent) !== label) numberHeader.textContent = label;
-        numberHeader.classList.toggle("dcfmk-hidden-number", hasSubjectColumn);
-        numberHeader.classList.toggle("dcfmk-tab-cell", !hasSubjectColumn);
+        numberHeader.classList.toggle("dcui-hidden-number", hasSubjectColumn);
+        numberHeader.classList.toggle("dcui-tab-cell", !hasSubjectColumn);
       }
       if (subjectHeader) {
         if (cleanText(subjectHeader.textContent) !== "말머리") subjectHeader.textContent = "말머리";
-        subjectHeader.classList.add("dcfmk-tab-cell");
+        subjectHeader.classList.add("dcui-tab-cell");
       }
-      if (hasSubjectColumn && listTable.dataset.dcfmkNumberColumnRemoved !== "true") {
+      if (hasSubjectColumn && listTable.dataset.dcuiNumberColumnRemoved !== "true") {
         const numberColumnIndex = headers.indexOf(numberHeader);
         const numberColumn = listTable.querySelectorAll("colgroup col")[numberColumnIndex];
         numberColumn?.remove();
-        listTable.dataset.dcfmkNumberColumnRemoved = "true";
+        listTable.dataset.dcuiNumberColumnRemoved = "true";
       }
 
       for (const row of rows) {
@@ -6442,13 +6442,13 @@
         const tabLabel = this.tabLabel(row, originalNumber, subjectCell);
 
         if (hasSubjectColumn) {
-          numberCell?.classList.add("dcfmk-hidden-number");
+          numberCell?.classList.add("dcui-hidden-number");
           if (subjectCell) {
-            subjectCell.classList.add("dcfmk-tab-cell");
+            subjectCell.classList.add("dcui-tab-cell");
             if (!cleanText(subjectCell.textContent)) subjectCell.textContent = tabLabel;
           }
         } else if (numberCell) {
-          numberCell.classList.add("dcfmk-tab-cell");
+          numberCell.classList.add("dcui-tab-cell");
           if (cleanText(numberCell.textContent) !== tabLabel) numberCell.textContent = tabLabel;
         }
       }
@@ -6467,14 +6467,14 @@
     },
 
     watchTable(listRoot) {
-      if (listRoot.__dcfmkListTableObserver || typeof MutationObserver !== "function") return;
+      if (listRoot.__dcuiListTableObserver || typeof MutationObserver !== "function") return;
       let refreshQueued = false;
       let observer = null;
       const refresh = () => {
         refreshQueued = false;
         const listTable = DcAdapter.listTable(listRoot);
         if (!listTable) return;
-        listTable.classList.add("dcfmk-list-table");
+        listTable.classList.add("dcui-list-table");
         this.decorateRows(listTable);
         this.decorateTable(listTable);
         this.syncSubjectCells();
@@ -6482,8 +6482,8 @@
         // Its preview can temporarily change a list URL to a view URL.
         if (PageContext.fromLocation()?.pageType === pageContext.pageType) {
           ShellView.configureDirectionalShortcuts(pageContext,
-            document.querySelector('#dcfmk-sidebar [data-role="sidePrevious"]'),
-            document.querySelector('#dcfmk-sidebar [data-role="sideNext"]'));
+            document.querySelector('#dcui-sidebar [data-role="sidePrevious"]'),
+            document.querySelector('#dcui-sidebar [data-role="sideNext"]'));
         }
         observer?.takeRecords();
       };
@@ -6502,15 +6502,15 @@
         if (relevant) queueRefresh();
       });
       observer.observe(listRoot, { childList: true, subtree: true });
-      listRoot.__dcfmkListTableObserver = observer;
+      listRoot.__dcuiListTableObserver = observer;
     },
 
     tabLabel(row, numberText, subjectCell) {
       const subject = cleanText(subjectCell?.textContent);
       if (subject) return subject;
-      if (row.classList.contains("dcfmk-row-notice") || numberText === "공지") return "공지";
-      if (row.classList.contains("dcfmk-row-survey") || numberText === "설문") return "설문";
-      if (row.classList.contains("dcfmk-row-ad") || numberText === "AD") return "AD";
+      if (row.classList.contains("dcui-row-notice") || numberText === "공지") return "공지";
+      if (row.classList.contains("dcui-row-survey") || numberText === "설문") return "설문";
+      if (row.classList.contains("dcui-row-ad") || numberText === "AD") return "AD";
       return "일반";
     },
 
@@ -6528,8 +6528,8 @@
 
     mountMiniMemberControl(meta, root = document, sourceBoxOverride = null) {
       if (!meta) return null;
-      let join = meta.querySelector(".dcfmk-gallery-join");
-      const memberSource = meta.querySelector(".dcfmk-gallery-members.membernum")
+      let join = meta.querySelector(".dcui-gallery-join");
+      const memberSource = meta.querySelector(".dcui-gallery-members.membernum")
         || root.querySelector(".mini_set.membernum, .membernum")
         || document.querySelector(".mini_intro_box .mini_set.membernum, .mini_intro_box .membernum");
       const sourceBox = sourceBoxOverride
@@ -6553,7 +6553,7 @@
 
       if (!join) {
         join = document.createElement("div");
-        join.className = "dcfmk-gallery-join";
+        join.className = "dcui-gallery-join";
       }
       if (memberSource) join.appendChild(memberSource);
       if (nativeBox) join.appendChild(nativeBox);
@@ -6567,12 +6567,12 @@
 
     mountGalleryIntro(pageHead) {
       if (!pageHead) return null;
-      const existing = document.querySelector(".dcfmk-gallery-intro");
+      const existing = document.querySelector(".dcui-gallery-intro");
       if (existing) {
-        const text = existing.querySelector(".dcfmk-gallery-intro-text");
+        const text = existing.querySelector(".dcui-gallery-intro-text");
         if (pageHead.parentElement !== existing) existing.insertBefore(pageHead, text || null);
-        pageHead.classList.add("dcfmk-gallery-intro-title");
-        this.mountMiniMemberControl(existing.querySelector(".dcfmk-gallery-meta"));
+        pageHead.classList.add("dcui-gallery-intro-title");
+        this.mountMiniMemberControl(existing.querySelector(".dcui-gallery-meta"));
         return existing;
       }
 
@@ -6598,7 +6598,7 @@
       if (!coverSource && !description && !rankLabel && !rankNumber && !memberLabel && !memberNumber && !hasMemberControl) return null;
 
       const intro = document.createElement("section");
-      intro.className = "dcfmk-gallery-intro";
+      intro.className = "dcui-gallery-intro";
       intro.setAttribute("aria-label", "갤러리 소개");
       const anchorParent = pageHead.parentNode;
       const anchorNext = pageHead.nextSibling;
@@ -6606,7 +6606,7 @@
 
       if (coverSource && this.shouldShowGalleryCover()) {
         const imageContainer = document.createElement("div");
-        imageContainer.className = "dcfmk-gallery-cover";
+        imageContainer.className = "dcui-gallery-cover";
         const popupSource = source.querySelector(".mintro_imgbox")?.getAttribute("href") || "";
         const popupUrl = popupSource.match(/imgPop\(\s*['"]([^'"]+)/)?.[1] || "";
         const originalImageUrl = popupUrl.replace(/\/viewimagePop\.php(?=\?)/, "/viewimage.php");
@@ -6642,22 +6642,22 @@
         galleryCover = imageContainer;
       }
 
-      pageHead.classList.add("dcfmk-gallery-intro-title");
+      pageHead.classList.add("dcui-gallery-intro-title");
       intro.appendChild(pageHead);
 
       const text = document.createElement("div");
-      text.className = "dcfmk-gallery-intro-text";
+      text.className = "dcui-gallery-intro-text";
       if (rankLabel || rankNumber || memberLabel || memberNumber || hasMemberControl) {
         const meta = document.createElement("div");
-        meta.className = "dcfmk-gallery-meta";
+        meta.className = "dcui-gallery-meta";
         if (rankLabel || rankNumber) {
           const rank = document.createElement("span");
-          rank.className = "dcfmk-gallery-rank";
+          rank.className = "dcui-gallery-rank";
           const icon = rankIconSource?.cloneNode(false) || document.createElement("span");
-          icon.classList.add("dcfmk-gallery-rank-icon");
+          icon.classList.add("dcui-gallery-rank-icon");
           icon.setAttribute("aria-hidden", "true");
           if (!rankIconSource) {
-            icon.classList.add("dcfmk-gallery-rank-icon-fallback");
+            icon.classList.add("dcui-gallery-rank-icon-fallback");
             icon.textContent = "●";
           }
           const value = document.createElement("strong");
@@ -6667,12 +6667,12 @@
         }
         if (memberLabel || memberNumber) {
           if (memberSource) {
-            memberSource.classList.add("dcfmk-gallery-members");
+            memberSource.classList.add("dcui-gallery-members");
             meta.appendChild(memberSource);
           } else {
             const member = document.createElement("span");
-            member.className = "dcfmk-gallery-members";
-            member.innerHTML = '<span class="dcfmk-gallery-members-icon" aria-hidden="true"></span>';
+            member.className = "dcui-gallery-members";
+            member.innerHTML = '<span class="dcui-gallery-members-icon" aria-hidden="true"></span>';
             const value = document.createElement("strong");
             value.textContent = [memberLabel || "멤버", memberNumber].filter(Boolean).join(" ");
             member.appendChild(value);
@@ -6700,7 +6700,7 @@
         trigger: relationButton,
         popupSelector: "#relation_popup",
         anchor: () => relationButton.closest(".page_head") || relationButton,
-        popupClass: "dcfmk-relation-popup",
+        popupClass: "dcui-relation-popup",
         nativeFunction: "open_relation",
         closeSelector: ".poply_bgblueclose",
       });
@@ -6761,8 +6761,8 @@
     mountManagerLine(pageHead) {
       if (!pageHead) return null;
 
-      const galleryIntro = pageHead.closest(".dcfmk-gallery-intro");
-      const existing = document.querySelector(".dcfmk-manager-line");
+      const galleryIntro = pageHead.closest(".dcui-gallery-intro");
+      const existing = document.querySelector(".dcui-manager-line");
       if (existing) {
         if (galleryIntro) galleryIntro.appendChild(existing);
         else if (pageHead.nextElementSibling !== existing) pageHead.insertAdjacentElement("afterend", existing);
@@ -6783,17 +6783,17 @@
       ].join(","));
       if (managers.length === 0 && subManagers.length === 0 && !openingDate && !reportButton) return null;
 
-      const introText = galleryIntro?.querySelector(".dcfmk-gallery-intro-text");
-      if (openingDate && introText && !introText.querySelector(".dcfmk-opening-date")) {
+      const introText = galleryIntro?.querySelector(".dcui-gallery-intro-text");
+      if (openingDate && introText && !introText.querySelector(".dcui-opening-date")) {
         const date = document.createElement("span");
-        date.className = "dcfmk-opening-date";
+        date.className = "dcui-opening-date";
         date.innerHTML = "<strong>개설일:</strong> ";
         date.append(document.createTextNode(openingDate));
         introText.appendChild(date);
       }
 
       const line = document.createElement("div");
-      line.className = "dcfmk-manager-line";
+      line.className = "dcui-manager-line";
       line.title = [
         managers.length ? `매니저: ${managers.join(", ")}` : "",
         subManagers.length ? `부매니저: ${subManagers.join(", ")}` : "",
@@ -6803,13 +6803,13 @@
       const appendGroup = (label, names, className = "") => {
         if (names.length === 0) return null;
         const group = document.createElement("div");
-        group.className = "dcfmk-manager-group";
+        group.className = "dcui-manager-group";
         if (className) group.classList.add(className);
         group.dataset.managerLabel = label;
         const heading = document.createElement("strong");
         heading.textContent = `${label}:`;
         const value = document.createElement("span");
-        value.className = "dcfmk-manager-value";
+        value.className = "dcui-manager-value";
         value.textContent = names.join(", ");
         group.append(heading, value);
         line.appendChild(group);
@@ -6817,18 +6817,18 @@
       };
       appendGroup("매니저", managers);
 
-      const subManagerGroup = appendGroup("부매니저", subManagers.slice(0, 2), "dcfmk-submanager-group");
+      const subManagerGroup = appendGroup("부매니저", subManagers.slice(0, 2), "dcui-submanager-group");
       if (subManagerGroup && subManagers.length > 2) {
         const extraRow = document.createElement("div");
-        extraRow.className = "dcfmk-submanager-extra-row";
+        extraRow.className = "dcui-submanager-extra-row";
         extraRow.hidden = true;
         const extraNames = document.createElement("span");
-        extraNames.className = "dcfmk-submanager-extra";
+        extraNames.className = "dcui-submanager-extra";
         extraNames.textContent = subManagers.slice(2).join(", ");
         extraRow.appendChild(extraNames);
         const toggle = document.createElement("button");
         toggle.type = "button";
-        toggle.className = "dcfmk-submanager-toggle";
+        toggle.className = "dcui-submanager-toggle";
         toggle.setAttribute("aria-label", `부매니저 ${subManagers.length - 2}명 더 보기`);
         toggle.setAttribute("aria-expanded", "false");
         toggle.innerHTML = '<svg aria-hidden="true" viewBox="0 0 16 16" focusable="false"><path d="m3 6 5 5 5-5Z"></path></svg>';
@@ -6836,12 +6836,12 @@
       }
 
       if (openingDate && !introText) {
-        appendGroup("개설일", [openingDate], "dcfmk-opening-date-group");
+        appendGroup("개설일", [openingDate], "dcui-opening-date-group");
       }
 
       if (reportButton) {
         const reportRow = document.createElement("div");
-        reportRow.className = "dcfmk-manager-report-row";
+        reportRow.className = "dcui-manager-report-row";
         reportRow.dataset.managerLabel = "갤러리 관리 내역";
         reportRow.title = "";
         reportButton.title = "";
@@ -6852,8 +6852,8 @@
           AnchoredPopupController.bind({
             trigger: reportButton,
             popupSelector: "#pop_manage_report_list",
-            anchor: () => reportButton.closest(".dcfmk-manager-line") || reportButton,
-            popupClass: "dcfmk-manager-report-popup",
+            anchor: () => reportButton.closest(".dcui-manager-line") || reportButton,
+            popupClass: "dcui-manager-report-popup",
             nativeFunction: "get_manage_report",
             closeSelector: ".poply_whiteclose",
           });
@@ -6861,10 +6861,10 @@
       }
 
       line.addEventListener("click", (event) => {
-        const toggle = event.target.closest?.(".dcfmk-submanager-toggle");
+        const toggle = event.target.closest?.(".dcui-submanager-toggle");
         if (toggle && line.contains(toggle)) {
           event.preventDefault();
-          const extraRow = toggle.closest(".dcfmk-submanager-group")?.querySelector(".dcfmk-submanager-extra-row");
+          const extraRow = toggle.closest(".dcui-submanager-group")?.querySelector(".dcui-submanager-extra-row");
           const expanded = toggle.getAttribute("aria-expanded") === "true";
           toggle.setAttribute("aria-expanded", String(!expanded));
           toggle.setAttribute("aria-label", expanded
@@ -6883,19 +6883,19 @@
 
     boardTab(label, href, active = false, className = "") {
       const link = document.createElement("a");
-      link.className = `dcfmk-board-tab ${className}`.trim();
+      link.className = `dcui-board-tab ${className}`.trim();
       link.href = href;
       link.textContent = label;
       if (active) {
-        link.classList.add("dcfmk-active");
+        link.classList.add("dcui-active");
         link.setAttribute("aria-current", "page");
       }
       return link;
     },
 
     layoutBoardNavigation(nav) {
-      const more = nav?.querySelector(":scope > .dcfmk-board-more");
-      const menu = nav?.querySelector(":scope > .dcfmk-board-more-menu");
+      const more = nav?.querySelector(":scope > .dcui-board-more");
+      const menu = nav?.querySelector(":scope > .dcui-board-more-menu");
       if (!nav || !more || !menu) return;
 
       const listTabs = nav.closest(".list_array_option");
@@ -6903,8 +6903,8 @@
       nav.style.removeProperty("flex");
       nav.style.removeProperty("width");
 
-      const wasOpen = more.classList.contains("dcfmk-open");
-      const movable = Array.from(nav.querySelectorAll(".dcfmk-board-tab[data-overflow-order]"))
+      const wasOpen = more.classList.contains("dcui-open");
+      const movable = Array.from(nav.querySelectorAll(".dcui-board-tab[data-overflow-order]"))
         .sort((left, right) => Number(left.dataset.overflowOrder) - Number(right.dataset.overflowOrder));
       for (const link of movable) nav.insertBefore(link, more);
       const firstHead = movable[0];
@@ -6913,12 +6913,12 @@
         const firstHeadBox = firstHead.getBoundingClientRect();
         const navBorderLeft = Number.parseFloat(getComputedStyle(nav).borderLeftWidth) || 0;
         menu.style.setProperty(
-          "--dcfmk-board-menu-start",
+          "--dcui-board-menu-start",
           `${Math.max(0, firstHeadBox.left - navBox.left - navBorderLeft)}px`,
         );
       }
       more.hidden = true;
-      more.classList.remove("dcfmk-active");
+      more.classList.remove("dcui-active");
 
       const firstRowOverflows = () => {
         const navTop = nav.getBoundingClientRect().top;
@@ -6929,7 +6929,7 @@
       };
 
       if (!firstRowOverflows()) {
-        more.classList.remove("dcfmk-open");
+        more.classList.remove("dcui-open");
         more.querySelector("button")?.setAttribute("aria-expanded", "false");
         return;
       }
@@ -6942,15 +6942,15 @@
       }
       nav.style.removeProperty("flex");
       nav.style.removeProperty("width");
-      more.classList.toggle("dcfmk-active", Boolean(menu.querySelector(".dcfmk-active")));
-      more.classList.toggle("dcfmk-open", wasOpen);
+      more.classList.toggle("dcui-active", Boolean(menu.querySelector(".dcui-active")));
+      more.classList.toggle("dcui-open", wasOpen);
       more.querySelector("button")?.setAttribute("aria-expanded", String(wasOpen));
     },
 
     bindBoardMore(nav, more) {
       const button = more.querySelector("button");
       const close = () => {
-        more.classList.remove("dcfmk-open");
+        more.classList.remove("dcui-open");
         button?.setAttribute("aria-expanded", "false");
       };
       button?.addEventListener("click", (event) => {
@@ -6960,7 +6960,7 @@
           close();
           return;
         }
-        const open = more.classList.toggle("dcfmk-open");
+        const open = more.classList.toggle("dcui-open");
         button.setAttribute("aria-expanded", String(open));
       });
       more.addEventListener("click", (event) => event.stopPropagation());
@@ -6981,13 +6981,13 @@
           layout();
         });
         observer.observe(nav);
-        nav.__dcfmkResizeObserver = observer;
+        nav.__dcuiResizeObserver = observer;
       }
     },
 
     mountBoardNavigation(listTabs) {
       if (!listTabs) return;
-      const mountedNav = listTabs.querySelector(".dcfmk-board-nav");
+      const mountedNav = listTabs.querySelector(".dcui-board-nav");
       if (mountedNav) {
         this.syncSubjectCells(mountedNav);
         return;
@@ -6999,14 +6999,14 @@
       const originalTabs = listTabs.querySelector(".array_tab");
       const originalHeads = listTabs.querySelector(".center_box");
       const nav = document.createElement("nav");
-      nav.className = "dcfmk-board-nav";
+      nav.className = "dcui-board-nav";
       nav.setAttribute("aria-label", "갤러리 글 분류");
 
       const home = this.boardTab(
         "전체글",
         pageContext.urls.list,
         !exceptionMode && searchHead === null,
-        "dcfmk-board-tab-home",
+        "dcui-board-tab-home",
       );
       home.innerHTML = `
         <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
@@ -7021,7 +7021,7 @@
           "개념글",
           pageContext.urls.concept,
           conceptActive,
-          "dcfmk-board-tab-concept",
+          "dcui-board-tab-concept",
         );
         conceptTab.setAttribute("aria-label", "개념글 보기");
         nav.appendChild(conceptTab);
@@ -7044,28 +7044,28 @@
       });
 
       const more = document.createElement("div");
-      more.className = "dcfmk-board-more";
+      more.className = "dcui-board-more";
       more.hidden = true;
       more.innerHTML = `
-        <button type="button" class="dcfmk-board-more-button" aria-label="말머리 더보기" aria-expanded="false">
+        <button type="button" class="dcui-board-more-button" aria-label="말머리 더보기" aria-expanded="false">
           <svg aria-hidden="true" viewBox="0 0 16 16" focusable="false"><path d="m3 6 5 5 5-5Z"></path></svg>
         </button>
       `;
       nav.appendChild(more);
       const moreMenu = document.createElement("div");
-      moreMenu.className = "dcfmk-board-more-menu";
+      moreMenu.className = "dcui-board-more-menu";
       moreMenu.setAttribute("role", "menu");
       nav.appendChild(moreMenu);
       listTabs.prepend(nav);
-      originalTabs?.classList.add("dcfmk-board-nav-source");
-      originalHeads?.classList.add("dcfmk-board-nav-source");
+      originalTabs?.classList.add("dcui-board-nav-source");
+      originalHeads?.classList.add("dcui-board-nav-source");
       this.syncSubjectCells(nav);
       this.bindBoardMore(nav, more);
     },
 
-    subjectTargets(root = document, nav = root.querySelector?.(".dcfmk-board-nav")) {
+    subjectTargets(root = document, nav = root.querySelector?.(".dcui-board-nav")) {
       const targets = new Map();
-      for (const link of nav?.querySelectorAll(".dcfmk-board-tab") || []) {
+      for (const link of nav?.querySelectorAll(".dcui-board-tab") || []) {
         const label = cleanText(link.textContent);
         if (label) targets.set(label, link.href);
       }
@@ -7082,7 +7082,7 @@
     },
 
     subjectTargetCacheKey() {
-      return `dcfmk:subject-targets:${pageContext.galleryKey}`;
+      return `dcui:subject-targets:${pageContext.galleryKey}`;
     },
 
     readSubjectTargetCache() {
@@ -7139,8 +7139,8 @@
     },
 
     linkSubjectCells(targets) {
-      for (const cell of document.querySelectorAll("table.dcfmk-list-table tbody tr.ub-content .dcfmk-tab-cell")) {
-        const existing = cell.querySelector(":scope > .dcfmk-subject-filter-link");
+      for (const cell of document.querySelectorAll("table.dcui-list-table tbody tr.ub-content .dcui-tab-cell")) {
+        const existing = cell.querySelector(":scope > .dcui-subject-filter-link");
         if (existing?.shadowRoot) continue;
         const label = cleanText(cell.textContent);
         const targetHref = targets.get(label);
@@ -7150,14 +7150,14 @@
         // Keep our generated filter link separate while retaining the native
         // cell content through a slot and a real, keyboard-accessible anchor.
         const host = existing || document.createElement("span");
-        host.className = "dcfmk-subject-filter-link";
+        host.className = "dcui-subject-filter-link";
         const shadow = host.attachShadow({ mode: "open" });
         const style = document.createElement("style");
         style.textContent = `
           a { display: block; overflow: hidden; color: inherit; font: inherit;
             text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
-          a:hover, a:focus-visible { color: var(--dcfmk-color-link); text-decoration: underline; }
-          a:focus-visible { outline: 2px solid var(--dcfmk-color-accent); outline-offset: -2px; }
+          a:hover, a:focus-visible { color: var(--dcui-color-link); text-decoration: underline; }
+          a:focus-visible { outline: 2px solid var(--dcui-color-accent); outline-offset: -2px; }
         `;
         const link = document.createElement("a");
         link.href = targetHref;
@@ -7186,7 +7186,7 @@
       const localTargetsAreComplete = this.cacheSubjectTargets(localTargets);
       const hasFreshTargets = cached.fresh || localTargetsAreComplete;
       const hasUnlinkedSupportedCell = Array.from(document.querySelectorAll(
-        "table.dcfmk-list-table tbody tr.ub-content .dcfmk-tab-cell:not(:has(> .dcfmk-subject-filter-link))",
+        "table.dcui-list-table tbody tr.ub-content .dcui-tab-cell:not(:has(> .dcui-subject-filter-link))",
       )).some((cell) => !["", "설문", "AD"].includes(cleanText(cell.textContent)));
       const needsRemoteTargets = !hasFreshTargets && hasUnlinkedSupportedCell;
       const needsFreshViewTargets = pageContext.pageType === "view" && !hasFreshTargets;
@@ -7214,7 +7214,7 @@
       const galleryIntro = this.mountGalleryIntro(pageHead);
       this.bindRelationPopup(pageHead);
       const managerLine = this.mountManagerLine(pageHead);
-      const galleryCover = document.querySelector(".dcfmk-gallery-cover");
+      const galleryCover = document.querySelector(".dcui-gallery-cover");
       const headerRoot = galleryCover || galleryIntro || pageHead;
       const featuredPosts = FeaturedPostsView.mount(pageContext);
       const leftContent = DcAdapter.leftContent();
@@ -7240,8 +7240,8 @@
     },
 
     watchGalleryHeader() {
-      if (document.documentElement.dataset.dcfmkHeaderWatch === "true") return;
-      document.documentElement.dataset.dcfmkHeaderWatch = "true";
+      if (document.documentElement.dataset.dcuiHeaderWatch === "true") return;
+      document.documentElement.dataset.dcuiHeaderWatch = "true";
 
       const sync = () => {
         this.syncGalleryHeader();
@@ -7287,7 +7287,7 @@
       const listArticle = DcAdapter.listRoot()?.closest("article");
       const paging = listArticle?.querySelector(":scope > .bottom_paging_wrap");
       if (!paging?.parentNode) return null;
-      const existing = listArticle.querySelector(":scope > .dcfmk-fm-bottom-menu");
+      const existing = listArticle.querySelector(":scope > .dcui-fm-bottom-menu");
       if (existing) {
         if (existing.nextElementSibling !== paging) paging.parentNode.insertBefore(existing, paging);
         return existing;
@@ -7302,39 +7302,39 @@
       if (!searchForm && !conceptButton && !writeButton) return null;
 
       const menu = document.createElement("div");
-      menu.className = "dcfmk-fm-bottom-menu";
+      menu.className = "dcui-fm-bottom-menu";
       if (searchForm) {
         const searchWrap = searchForm.querySelector(".buttom_search_wrap");
         const searchInput = searchWrap?.querySelector(".bottom_search");
         const searchType = searchWrap?.querySelector(".bottom_array");
         const searchTypeArea = searchType?.querySelector(".select_area");
-        searchInput?.classList.add("dcfmk-control-frame");
-        searchTypeArea?.classList.add("dcfmk-control-frame");
-        searchTypeArea?.querySelector(":scope > .inner")?.classList.add("dcfmk-control-addon");
+        searchInput?.classList.add("dcui-control-frame");
+        searchTypeArea?.classList.add("dcui-control-frame");
+        searchTypeArea?.querySelector(":scope > .inner")?.classList.add("dcui-control-addon");
         if (searchWrap && searchInput && searchType) searchWrap.append(searchInput, searchType);
         menu.appendChild(searchForm);
       }
       const actions = document.createElement("div");
-      actions.className = "dcfmk-fm-bottom-actions";
+      actions.className = "dcui-fm-bottom-actions";
       if (conceptButton) {
         let conceptControl = conceptButton;
         if (conceptActive) {
           conceptControl = document.createElement("a");
           conceptControl.href = pageContext.urls.list;
-          conceptControl.className = "dcfmk-fm-bottom-button dcfmk-fm-concept-button dcfmk-active";
+          conceptControl.className = "dcui-fm-bottom-button dcui-fm-concept-button dcui-active";
           conceptControl.textContent = "개념글";
-          conceptControl.dataset.dcfmkToggleUrl = pageContext.urls.list;
+          conceptControl.dataset.dcuiToggleUrl = pageContext.urls.list;
           conceptControl.setAttribute("aria-current", "page");
           conceptControl.setAttribute("aria-label", "개념글, 전체글 목록으로 돌아가기");
         } else {
-          conceptControl.classList.add("dcfmk-fm-bottom-button", "dcfmk-fm-concept-button");
+          conceptControl.classList.add("dcui-fm-bottom-button", "dcui-fm-concept-button");
           conceptButton.setAttribute("aria-pressed", "false");
           conceptButton.setAttribute("aria-label", "개념글 보기");
         }
         actions.appendChild(conceptControl);
       }
       if (writeButton) {
-        writeButton.classList.add("dcfmk-fm-bottom-button", "dcfmk-fm-write-button");
+        writeButton.classList.add("dcui-fm-bottom-button", "dcui-fm-write-button");
         actions.appendChild(writeButton);
       }
       if (actions.childElementCount > 0) menu.appendChild(actions);
@@ -7349,9 +7349,9 @@
       const optionLinks = [...(control?.querySelectorAll("#listSizeLayer a") || [])];
       if (!control || !select || !currentLink || optionLinks.length === 0) return;
 
-      control.classList.add("dcfmk-list-size-control");
+      control.classList.add("dcui-list-size-control");
       control.closest(".right_box")?.querySelector(".switch_btnbox .btn_write")
-        ?.classList.add("dcfmk-top-write-button");
+        ?.classList.add("dcui-top-write-button");
       const currentSize = cleanText(currentLink.textContent).match(/(?:30|50|100)/)?.[0] || select.value || "30";
       select.value = currentSize;
       currentLink.setAttribute("aria-haspopup", "listbox");
@@ -7364,8 +7364,8 @@
         link.setAttribute("aria-selected", String(size === currentSize));
       });
 
-      if (!control.dataset.dcfmkListSizePreferenceBound) {
-        control.dataset.dcfmkListSizePreferenceBound = "true";
+      if (!control.dataset.dcuiListSizePreferenceBound) {
+        control.dataset.dcuiListSizePreferenceBound = "true";
         control.addEventListener("click", (event) => {
           const option = event.target.closest?.("#listSizeLayer a");
           if (!option || !control.contains(option)) return;
@@ -7376,18 +7376,18 @@
     },
 
     alignSidebarToList() {
-      const sidebar = document.getElementById("dcfmk-sidebar");
+      const sidebar = document.getElementById("dcui-sidebar");
       if (!sidebar) return;
       sidebar.style.marginTop = "0px";
     },
 
     injectStyle() {
-      if (document.getElementById("dcfmk-list-style")) return;
+      if (document.getElementById("dcui-list-style")) return;
 
       const style = document.createElement("style");
-      style.id = "dcfmk-list-style";
+      style.id = "dcui-list-style";
       style.textContent = `
-        html.dcfmk-enabled .list_array_option {
+        html.dcui-enabled .list_array_option {
           display: flex !important;
           align-items: flex-end;
           justify-content: space-between;
@@ -7395,10 +7395,10 @@
           margin-top: 12px;
           border-bottom: 0;
         }
-        html.dcfmk-enabled .list_array_option::after {
+        html.dcui-enabled .list_array_option::after {
           display: none !important;
         }
-        html.dcfmk-enabled .array_tab {
+        html.dcui-enabled .array_tab {
           display: inline-flex;
           flex: 0 0 auto;
           align-items: flex-end;
@@ -7406,187 +7406,187 @@
           width: auto !important;
           height: 38px;
         }
-        html.dcfmk-enabled .array_tab button {
+        html.dcui-enabled .array_tab button {
           min-width: 76px;
           height: 34px;
-          border: 1px solid var(--dcfmk-color-border);
+          border: 1px solid var(--dcui-color-border);
           border-bottom: 0;
           border-radius: 0;
-          background: var(--dcfmk-color-surface);
-          color: var(--dcfmk-color-text-soft);
+          background: var(--dcui-color-surface);
+          color: var(--dcui-color-text-soft);
           font-size: 12px;
           font-weight: 700;
         }
-        html.dcfmk-enabled .array_tab button:hover {
-          border-color: var(--dcfmk-control-border-hover);
-          color: var(--dcfmk-color-link);
+        html.dcui-enabled .array_tab button:hover {
+          border-color: var(--dcui-control-border-hover);
+          color: var(--dcui-color-link);
         }
-        html.dcfmk-enabled .array_tab button.on {
-          border-color: var(--dcfmk-color-nav-light);
-          background: var(--dcfmk-color-nav-light);
-          color: var(--dcfmk-color-on-accent);
+        html.dcui-enabled .array_tab button.on {
+          border-color: var(--dcui-color-nav-light);
+          background: var(--dcui-color-nav-light);
+          color: var(--dcui-color-on-accent);
         }
-        html.dcfmk-enabled .list_array_option .right_box {
+        html.dcui-enabled .list_array_option .right_box {
           float: none;
           width: auto;
           padding-top: 4px;
         }
-        html.dcfmk-enabled .list_array_option .output_array {
+        html.dcui-enabled .list_array_option .output_array {
           display: flex !important;
           align-items: center;
           gap: 6px;
           padding-top: 0;
         }
-        html.dcfmk-enabled .list_array_option .select_area,
-        html.dcfmk-enabled .list_array_option .btn_write {
+        html.dcui-enabled .list_array_option .select_area,
+        html.dcui-enabled .list_array_option .btn_write {
           height: 29px;
-          border: 1px solid var(--dcfmk-color-border);
+          border: 1px solid var(--dcui-color-border);
           border-radius: 0;
-          background: var(--dcfmk-color-surface);
-          color: var(--dcfmk-color-text-soft);
+          background: var(--dcui-color-surface);
+          color: var(--dcui-color-text-soft);
           line-height: 27px;
         }
-        html.dcfmk-enabled .list_array_option .btn_write {
+        html.dcui-enabled .list_array_option .btn_write {
           display: inline-block;
           min-width: 64px;
           padding: 0 10px;
-          border-color: var(--dcfmk-color-nav-light);
-          background: var(--dcfmk-color-nav-light);
-          color: var(--dcfmk-color-on-accent);
+          border-color: var(--dcui-color-nav-light);
+          background: var(--dcui-color-nav-light);
+          color: var(--dcui-color-on-accent);
           font-weight: 700;
           text-align: center;
         }
-        html.dcfmk-enabled .dcfmk-list {
-          border-top: 2px solid var(--dcfmk-color-nav-light);
+        html.dcui-enabled .dcui-list {
+          border-top: 2px solid var(--dcui-color-nav-light);
         }
-        html.dcfmk-enabled table.dcfmk-list-table {
+        html.dcui-enabled table.dcui-list-table {
           width: 100%;
           border-collapse: collapse;
           table-layout: fixed;
-          color: var(--dcfmk-color-text);
-          font-family: var(--dcfmk-font);
+          color: var(--dcui-color-text);
+          font-family: var(--dcui-font);
         }
-        html.dcfmk-enabled table.dcfmk-list-table thead th {
+        html.dcui-enabled table.dcui-list-table thead th {
           height: 34px;
-          border-bottom: 1px solid var(--dcfmk-color-border-strong);
-          background: var(--dcfmk-color-subtle);
-          color: var(--dcfmk-color-text-soft);
+          border-bottom: 1px solid var(--dcui-color-border-strong);
+          background: var(--dcui-color-subtle);
+          color: var(--dcui-color-text-soft);
           font-size: 11px;
           font-weight: 700;
           text-align: center;
         }
-        html.dcfmk-enabled table.dcfmk-list-table tbody tr {
+        html.dcui-enabled table.dcui-list-table tbody tr {
           transition: background-color 100ms ease;
         }
-        html.dcfmk-enabled table.dcfmk-list-table tbody tr:hover {
-          background: var(--dcfmk-color-surface-hover);
+        html.dcui-enabled table.dcui-list-table tbody tr:hover {
+          background: var(--dcui-color-surface-hover);
         }
-        html.dcfmk-enabled table.dcfmk-list-table tbody td {
+        html.dcui-enabled table.dcui-list-table tbody td {
           height: 34px;
           padding-top: 0;
           padding-bottom: 0;
-          border-bottom: 1px solid var(--dcfmk-color-border-soft);
-          color: var(--dcfmk-color-text);
+          border-bottom: 1px solid var(--dcui-color-border-soft);
+          color: var(--dcui-color-text);
           font-size: 12px;
           line-height: 34px;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .gall_num,
-        html.dcfmk-enabled table.dcfmk-list-table .gall_date,
-        html.dcfmk-enabled table.dcfmk-list-table .gall_count,
-        html.dcfmk-enabled table.dcfmk-list-table .gall_recommend {
-          color: var(--dcfmk-color-muted);
+        html.dcui-enabled table.dcui-list-table .gall_num,
+        html.dcui-enabled table.dcui-list-table .gall_date,
+        html.dcui-enabled table.dcui-list-table .gall_count,
+        html.dcui-enabled table.dcui-list-table .gall_recommend {
+          color: var(--dcui-color-muted);
           font-size: 11px;
           text-align: center;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .gall_tit {
+        html.dcui-enabled table.dcui-list-table .gall_tit {
           padding-left: 8px;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .gall_tit > a:not(.reply_numbox) {
-          color: var(--dcfmk-color-text-strong);
+        html.dcui-enabled table.dcui-list-table .gall_tit > a:not(.reply_numbox) {
+          color: var(--dcui-color-text-strong);
           text-decoration: none;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .gall_tit > a:not(.reply_numbox):visited {
-          color: var(--dcfmk-color-faint);
+        html.dcui-enabled table.dcui-list-table .gall_tit > a:not(.reply_numbox):visited {
+          color: var(--dcui-color-faint);
         }
-        html.dcfmk-enabled table.dcfmk-list-table .gall_tit > a:not(.reply_numbox):hover {
-          color: var(--dcfmk-color-link);
+        html.dcui-enabled table.dcui-list-table .gall_tit > a:not(.reply_numbox):hover {
+          color: var(--dcui-color-link);
           text-decoration: underline;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .reply_numbox,
-        html.dcfmk-enabled table.dcfmk-list-table .reply_num {
-          color: var(--dcfmk-color-link);
+        html.dcui-enabled table.dcui-list-table .reply_numbox,
+        html.dcui-enabled table.dcui-list-table .reply_num {
+          color: var(--dcui-color-link);
           font-size: 11px;
           font-weight: 400;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .gall_writer {
+        html.dcui-enabled table.dcui-list-table .gall_writer {
           overflow: hidden;
           padding: 0 6px;
           text-align: left;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .gall_writer[user_name="운영자"] {
+        html.dcui-enabled table.dcui-list-table .gall_writer[user_name="운영자"] {
           text-align: center;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .gall_writer .addbox:has(> .dcfmk-user-identifier) {
+        html.dcui-enabled table.dcui-list-table .gall_writer .addbox:has(> .dcui-user-identifier) {
           display: inline-flex;
           align-items: center;
           width: 100%;
           min-width: 0;
           vertical-align: middle;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .gall_writer .addbox:has(> .dcfmk-user-identifier) > .nickname,
-        html.dcfmk-enabled table.dcfmk-list-table .gall_writer .addbox:has(> .dcfmk-user-identifier) > .writer_nikcon {
+        html.dcui-enabled table.dcui-list-table .gall_writer .addbox:has(> .dcui-user-identifier) > .nickname,
+        html.dcui-enabled table.dcui-list-table .gall_writer .addbox:has(> .dcui-user-identifier) > .writer_nikcon {
           flex: 0 0 auto;
           max-width: none;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .gall_writer .dcfmk-user-identifier {
+        html.dcui-enabled table.dcui-list-table .gall_writer .dcui-user-identifier {
           flex: 0 1 auto;
           min-width: 0;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
           margin-left: 3px;
-          color: var(--dcfmk-color-faint);
+          color: var(--dcui-color-faint);
           font-size: 9px;
           font-weight: 400;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .gall_writer:has(.user_data.add) {
+        html.dcui-enabled table.dcui-list-table .gall_writer:has(.user_data.add) {
           overflow: visible;
         }
-        html.dcfmk-enabled table.dcfmk-list-table tr.dcfmk-row-notice {
-          background: var(--dcfmk-color-surface-notice);
+        html.dcui-enabled table.dcui-list-table tr.dcui-row-notice {
+          background: var(--dcui-color-surface-notice);
         }
-        html.dcfmk-enabled table.dcfmk-list-table tr.dcfmk-row-notice .gall_num,
-        html.dcfmk-enabled table.dcfmk-list-table tr.dcfmk-row-notice .gall_tit > a {
-          color: var(--dcfmk-color-link);
+        html.dcui-enabled table.dcui-list-table tr.dcui-row-notice .gall_num,
+        html.dcui-enabled table.dcui-list-table tr.dcui-row-notice .gall_tit > a {
+          color: var(--dcui-color-link);
           font-weight: 700;
         }
-        html.dcfmk-enabled table.dcfmk-list-table tr.dcfmk-row-survey {
-          background: var(--dcfmk-color-surface-survey);
+        html.dcui-enabled table.dcui-list-table tr.dcui-row-survey {
+          background: var(--dcui-color-surface-survey);
         }
-        html.dcfmk-enabled table.dcfmk-list-table tr.dcfmk-row-ad {
-          background: var(--dcfmk-color-surface-ad);
+        html.dcui-enabled table.dcui-list-table tr.dcui-row-ad {
+          background: var(--dcui-color-surface-ad);
         }
-        html.dcfmk-enabled .list_bottom_btnbox {
+        html.dcui-enabled .list_bottom_btnbox {
           min-height: 42px;
           padding-top: 10px;
         }
-        html.dcfmk-enabled .list_bottom_btnbox button {
+        html.dcui-enabled .list_bottom_btnbox button {
           height: 30px;
-          border: 1px solid var(--dcfmk-color-border);
+          border: 1px solid var(--dcui-color-border);
           border-radius: 0;
-          background: var(--dcfmk-color-surface);
-          color: var(--dcfmk-color-text-soft);
+          background: var(--dcui-color-surface);
+          color: var(--dcui-color-text-soft);
           line-height: 28px;
         }
-        html.dcfmk-enabled .list_bottom_btnbox .btn_blue,
-        html.dcfmk-enabled .list_bottom_btnbox #btn_write {
-          border-color: var(--dcfmk-color-nav-light);
-          background: var(--dcfmk-color-nav-light);
-          color: var(--dcfmk-color-on-accent);
+        html.dcui-enabled .list_bottom_btnbox .btn_blue,
+        html.dcui-enabled .list_bottom_btnbox #btn_write {
+          border-color: var(--dcui-color-nav-light);
+          background: var(--dcui-color-nav-light);
+          color: var(--dcui-color-on-accent);
         }
-        html.dcfmk-enabled .bottom_paging_wrap {
+        html.dcui-enabled .bottom_paging_wrap {
           display: flex !important;
           align-items: flex-start;
           justify-content: center;
@@ -7594,12 +7594,12 @@
           min-height: 48px;
           margin-top: 4px;
           padding: 9px 10px 0;
-          border-top: 1px solid var(--dcfmk-color-border);
+          border-top: 1px solid var(--dcui-color-border);
         }
-        html.dcfmk-enabled .bottom_paging_wrap::after {
+        html.dcui-enabled .bottom_paging_wrap::after {
           display: none !important;
         }
-        html.dcfmk-enabled .bottom_paging_box {
+        html.dcui-enabled .bottom_paging_box {
           display: flex;
           flex: 0 1 auto;
           box-sizing: border-box;
@@ -7611,8 +7611,8 @@
           width: auto !important;
           padding: 0 !important;
         }
-        html.dcfmk-enabled .bottom_paging_box > a,
-        html.dcfmk-enabled .bottom_paging_box > em {
+        html.dcui-enabled .bottom_paging_box > a,
+        html.dcui-enabled .bottom_paging_box > em {
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -7623,23 +7623,25 @@
           margin: 0 !important;
           padding: 0 !important;
           border: 1px solid transparent;
-          color: var(--dcfmk-color-text-soft);
+          color: var(--dcui-color-text-soft);
           font-style: normal;
           line-height: 25px;
           text-decoration: none;
         }
-        html.dcfmk-enabled .bottom_paging_box > a:hover {
-          border-color: var(--dcfmk-color-border);
-          color: var(--dcfmk-color-link);
+        html.dcui-enabled .bottom_paging_box > a:hover {
+          border-color: var(--dcui-color-border);
+          color: var(--dcui-color-link);
         }
-        html.dcfmk-enabled .bottom_paging_box > em {
-          border-color: var(--dcfmk-color-nav-light);
-          background: var(--dcfmk-color-nav-light);
-          color: var(--dcfmk-color-on-accent);
+        html.dcui-enabled .bottom_paging_box > em {
+          border-color: var(--dcui-color-nav-light);
+          background: var(--dcui-color-nav-light);
+          color: var(--dcui-color-on-accent);
           font-weight: 700;
         }
-        html.dcfmk-enabled .bottom_paging_box .page_next,
-        html.dcfmk-enabled .bottom_paging_box .page_end {
+        html.dcui-enabled .bottom_paging_box .page_first,
+        html.dcui-enabled .bottom_paging_box .page_prev,
+        html.dcui-enabled .bottom_paging_box .page_next,
+        html.dcui-enabled .bottom_paging_box .page_end {
           width: 42px;
           min-width: 42px;
           overflow: visible;
@@ -7647,13 +7649,13 @@
           font-size: 11px !important;
           text-indent: 0 !important;
         }
-        html.dcfmk-enabled .bottom_movebox {
+        html.dcui-enabled .bottom_movebox {
           position: static;
           flex: 0 0 auto;
           width: auto;
           margin: 0;
         }
-        html.dcfmk-enabled .buttom_search_wrap {
+        html.dcui-enabled .buttom_search_wrap {
           display: flex;
           align-items: center;
           justify-content: center;
@@ -7661,149 +7663,149 @@
           height: 32px;
           margin: 14px 0 28px;
         }
-        html.dcfmk-enabled .buttom_search_wrap .bottom_array {
+        html.dcui-enabled .buttom_search_wrap .bottom_array {
           float: none;
           width: 125px;
           height: 32px;
         }
-        html.dcfmk-enabled .buttom_search_wrap .select_area {
+        html.dcui-enabled .buttom_search_wrap .select_area {
           height: 32px;
           margin: 0 !important;
-          border: 1px solid var(--dcfmk-color-border);
+          border: 1px solid var(--dcui-color-border);
           border-radius: 0;
-          background: var(--dcfmk-color-surface);
-          color: var(--dcfmk-color-text-soft);
+          background: var(--dcui-color-surface);
+          color: var(--dcui-color-text-soft);
           line-height: 30px;
         }
-        html.dcfmk-enabled .buttom_search_wrap .bottom_search {
+        html.dcui-enabled .buttom_search_wrap .bottom_search {
           position: static !important;
           float: none;
           width: 320px;
           height: 32px;
           margin: 0 0 0 5px !important;
-          border: 1px solid var(--dcfmk-color-nav-light);
-          background: var(--dcfmk-color-surface);
+          border: 1px solid var(--dcui-color-nav-light);
+          background: var(--dcui-color-surface);
         }
-        html.dcfmk-enabled .buttom_search_wrap .bottom_search .inner_search {
+        html.dcui-enabled .buttom_search_wrap .bottom_search .inner_search {
           float: left;
           width: 281px;
           height: 30px;
           margin: 0 !important;
         }
-        html.dcfmk-enabled .buttom_search_wrap .bottom_search .in_keyword {
+        html.dcui-enabled .buttom_search_wrap .bottom_search .in_keyword {
           width: 281px;
           height: 30px;
         }
-        html.dcfmk-enabled .buttom_search_wrap .bottom_search .bnt_search {
+        html.dcui-enabled .buttom_search_wrap .bottom_search .bnt_search {
           float: right;
           width: 37px;
           height: 30px;
           margin: 0 !important;
-          background-color: var(--dcfmk-color-nav-light);
+          background-color: var(--dcui-color-nav-light);
         }
-        html.dcfmk-enabled .page_head {
+        html.dcui-enabled .page_head {
           position: relative;
           min-height: 42px;
           margin-bottom: 0;
           border-bottom: 0;
         }
-        html.dcfmk-enabled .page_head h2 {
+        html.dcui-enabled .page_head h2 {
           position: relative;
           margin: 4px 0 0;
           padding: 0 0 0 24px;
           font-size: 20px;
           line-height: 26px;
         }
-        html.dcfmk-enabled .page_head h2::before {
+        html.dcui-enabled .page_head h2::before {
           position: absolute;
           top: 0;
           left: 0;
           width: 14px;
           height: 26px;
           border-radius: 2px;
-          background: var(--dcfmk-color-text-soft);
+          background: var(--dcui-color-text-soft);
           content: "";
         }
-        html.dcfmk-enabled .page_head h2 a {
-          color: var(--dcfmk-color-text-soft);
+        html.dcui-enabled .page_head h2 a {
+          color: var(--dcui-color-text-soft);
           font-size: 20px;
           line-height: 26px;
           text-decoration: none;
         }
-        html.dcfmk-enabled .page_head .pagehead_titicon {
+        html.dcui-enabled .page_head .pagehead_titicon {
           display: none !important;
         }
-        html.dcfmk-enabled .dcfmk-gallery-intro > .page_head > .fl {
+        html.dcui-enabled .dcui-gallery-intro > .page_head > .fl {
           display: flex;
           float: none;
           min-width: 0;
           flex: 1 1 auto;
           align-items: center;
         }
-        html.dcfmk-enabled .dcfmk-gallery-intro > .page_head h2 {
+        html.dcui-enabled .dcui-gallery-intro > .page_head h2 {
           float: none !important;
         }
-        html.dcfmk-enabled .dcfmk-gallery-intro > .page_head .favorite {
+        html.dcui-enabled .dcui-gallery-intro > .page_head .favorite {
           display: inline-flex !important;
           float: none !important;
           align-items: center;
           margin: 3px 0 0 8px !important;
         }
-        html.dcfmk-enabled .dcfmk-gallery-intro > .page_head .favorite button {
+        html.dcui-enabled .dcui-gallery-intro > .page_head .favorite button {
           display: inline-flex;
           width: 28px !important;
           height: 29px !important;
           align-items: center;
           justify-content: center;
         }
-        html.dcfmk-enabled .dcfmk-gallery-intro > .page_head .favorite button .icon_favorite {
+        html.dcui-enabled .dcui-gallery-intro > .page_head .favorite button .icon_favorite {
           margin: 0 !important;
           transform: scale(1.2);
           transform-origin: center;
         }
-        html.dcfmk-enabled.dcfmk-page-view .page_head .gall_issuebox > button[onclick*="gt_toggle_issue("] {
+        html.dcui-enabled.dcui-page-view .page_head .gall_issuebox > button[onclick*="gt_toggle_issue("] {
           display: none !important;
         }
-        html.dcfmk-enabled .page_head .gall_issuebox .issue_gallinfo,
-        html.dcfmk-enabled .page_head .gall_issuebox > .bundle {
+        html.dcui-enabled .page_head .gall_issuebox .issue_gallinfo,
+        html.dcui-enabled .page_head .gall_issuebox > .bundle {
           display: none !important;
         }
-        html.dcfmk-enabled .dcfmk-gallery-intro > .page_head .gall_issuebox {
+        html.dcui-enabled .dcui-gallery-intro > .page_head .gall_issuebox {
           display: flex !important;
           float: none !important;
           flex: 0 0 auto;
           align-items: center;
           margin-left: 10px;
         }
-        html.dcfmk-enabled .dcfmk-gallery-intro > .page_head .gall_issuebox .relate {
+        html.dcui-enabled .dcui-gallery-intro > .page_head .gall_issuebox .relate {
           display: inline-flex !important;
           height: 24px;
           align-items: center;
           border: 0;
           padding: 0;
           background: transparent;
-          color: var(--dcfmk-color-muted);
-          font: 11px/24px var(--dcfmk-font);
+          color: var(--dcui-color-muted);
+          font: 11px/24px var(--dcui-font);
           cursor: pointer;
         }
-        html.dcfmk-enabled .dcfmk-gallery-intro > .page_head .gall_issuebox .relate:hover {
-          color: var(--dcfmk-color-link);
+        html.dcui-enabled .dcui-gallery-intro > .page_head .gall_issuebox .relate:hover {
+          color: var(--dcui-color-link);
           text-decoration: underline;
         }
-        html.dcfmk-enabled .page_head .adr_copy,
-        html.dcfmk-enabled .page_head .gall_useinfo {
+        html.dcui-enabled .page_head .adr_copy,
+        html.dcui-enabled .page_head .gall_useinfo {
           display: none !important;
         }
-        html.dcfmk-enabled .issue_contentbox,
-        html.dcfmk-enabled .minor_intro_box,
-        html.dcfmk-enabled .mini_intro_box,
-        html.dcfmk-enabled .person_intro_box {
+        html.dcui-enabled .issue_contentbox,
+        html.dcui-enabled .minor_intro_box,
+        html.dcui-enabled .mini_intro_box,
+        html.dcui-enabled .person_intro_box {
           display: none !important;
         }
-        html.dcfmk-enabled .issue_wrap {
+        html.dcui-enabled .issue_wrap {
           border-top: 0 !important;
         }
-        html.dcfmk-enabled .dcfmk-gallery-intro {
+        html.dcui-enabled .dcui-gallery-intro {
           position: relative;
           z-index: 2;
           display: flex;
@@ -7818,9 +7820,9 @@
           border: 0;
           border-radius: 0;
           background: transparent;
-          color: var(--dcfmk-color-text-soft);
+          color: var(--dcui-color-text-soft);
         }
-        html.dcfmk-enabled .dcfmk-gallery-cover {
+        html.dcui-enabled .dcui-gallery-cover {
           position: relative;
           z-index: 1;
           display: flex;
@@ -7829,12 +7831,12 @@
           align-items: center;
           justify-content: center;
           margin: -4px auto 9px;
-          background: var(--dcfmk-color-surface);
+          background: var(--dcui-color-surface);
         }
-        html.dcfmk-enabled.dcfmk-gallery-cover-hidden .dcfmk-gallery-cover {
+        html.dcui-enabled.dcui-gallery-cover-hidden .dcui-gallery-cover {
           display: none !important;
         }
-        html.dcfmk-enabled .dcfmk-gallery-cover > img {
+        html.dcui-enabled .dcui-gallery-cover > img {
           display: block;
           width: auto;
           max-width: 100%;
@@ -7842,7 +7844,7 @@
           max-height: 450px;
           object-fit: contain;
         }
-        html.dcfmk-enabled .dcfmk-gallery-cover > span {
+        html.dcui-enabled .dcui-gallery-cover > span {
           display: block;
           width: 100%;
           aspect-ratio: 16 / 9;
@@ -7851,7 +7853,7 @@
           background-repeat: no-repeat;
           background-size: contain;
         }
-        html.dcfmk-enabled .dcfmk-gallery-intro-text {
+        html.dcui-enabled .dcui-gallery-intro-text {
           display: flex;
           box-sizing: border-box;
           width: min(800px, 100%);
@@ -7861,7 +7863,7 @@
           gap: 10px;
           padding: 0 2px;
         }
-        html.dcfmk-enabled .dcfmk-gallery-intro > .page_head {
+        html.dcui-enabled .dcui-gallery-intro > .page_head {
           display: flex;
           box-sizing: border-box;
           width: min(800px, 100%);
@@ -7872,117 +7874,117 @@
           padding: 0 2px;
           border: 0;
         }
-        html.dcfmk-enabled .dcfmk-gallery-intro > .page_head h2 {
+        html.dcui-enabled .dcui-gallery-intro > .page_head h2 {
           margin-top: 2px;
         }
-        html.dcfmk-enabled .dcfmk-gallery-meta {
+        html.dcui-enabled .dcui-gallery-meta {
           display: flex;
           flex: 0 0 auto;
           align-items: center;
           gap: 12px;
           min-height: 16px;
         }
-        html.dcfmk-enabled .dcfmk-gallery-rank,
-        html.dcfmk-enabled .dcfmk-gallery-members {
+        html.dcui-enabled .dcui-gallery-rank,
+        html.dcui-enabled .dcui-gallery-members {
           display: inline-flex;
           align-items: center;
           gap: 5px;
-          color: var(--dcfmk-color-nav);
+          color: var(--dcui-color-nav);
           font-size: 12px;
         }
-        html.dcfmk-enabled .dcfmk-gallery-rank-icon {
+        html.dcui-enabled .dcui-gallery-rank-icon {
           display: inline-block;
           flex: 0 0 auto;
           float: none !important;
           margin: 0 !important;
         }
-        html.dcfmk-enabled .dcfmk-gallery-rank-icon-fallback {
+        html.dcui-enabled .dcui-gallery-rank-icon-fallback {
           color: #e64b45;
           font-size: 9px;
         }
-        html.dcfmk-enabled .dcfmk-gallery-rank strong,
-        html.dcfmk-enabled .dcfmk-gallery-members strong {
+        html.dcui-enabled .dcui-gallery-rank strong,
+        html.dcui-enabled .dcui-gallery-members strong {
           font-weight: 700;
         }
-        html.dcfmk-enabled .dcfmk-gallery-members {
+        html.dcui-enabled .dcui-gallery-members {
           float: none !important;
           margin: 0 !important;
-          color: var(--dcfmk-color-muted);
+          color: var(--dcui-color-muted);
         }
-        html.dcfmk-enabled .dcfmk-gallery-join {
+        html.dcui-enabled .dcui-gallery-join {
           position: relative;
           display: inline-flex;
           flex: 0 0 auto;
           align-items: center;
           gap: 6px;
         }
-        html.dcfmk-enabled .dcfmk-gallery-join > .box {
+        html.dcui-enabled .dcui-gallery-join > .box {
           display: inline-flex;
           float: none !important;
           align-items: center;
           margin: 0 !important;
         }
-        html.dcfmk-enabled .dcfmk-gallery-join .smallestgag {
+        html.dcui-enabled .dcui-gallery-join .smallestgag {
           float: none !important;
           margin: 0 !important;
         }
-        html.dcfmk-enabled .dcfmk-gallery-join > .txt.font_grey {
+        html.dcui-enabled .dcui-gallery-join > .txt.font_grey {
           display: inline-flex;
           align-items: center;
           margin: 0;
           font-size: 12px;
           white-space: nowrap;
         }
-        html.dcfmk-enabled .dcfmk-gallery-members-icon {
+        html.dcui-enabled .dcui-gallery-members-icon {
           position: relative;
           display: inline-block;
           width: 12px;
           height: 12px;
         }
-        html.dcfmk-enabled .dcfmk-gallery-members-icon::before {
+        html.dcui-enabled .dcui-gallery-members-icon::before {
           position: absolute;
           top: 0;
           left: 4px;
           width: 5px;
           height: 5px;
           border-radius: 50%;
-          background: var(--dcfmk-color-muted);
+          background: var(--dcui-color-muted);
           content: "";
         }
-        html.dcfmk-enabled .dcfmk-gallery-members-icon::after {
+        html.dcui-enabled .dcui-gallery-members-icon::after {
           position: absolute;
           bottom: 0;
           left: 2px;
           width: 9px;
           height: 6px;
           border-radius: 5px 5px 2px 2px;
-          background: var(--dcfmk-color-muted);
+          background: var(--dcui-color-muted);
           content: "";
         }
-        html.dcfmk-enabled .dcfmk-gallery-intro-text p {
+        html.dcui-enabled .dcui-gallery-intro-text p {
           flex: 1 1 auto;
           min-width: 0;
           margin: 0;
           overflow: hidden;
-          color: var(--dcfmk-color-text-soft);
+          color: var(--dcui-color-text-soft);
           font-size: 12px;
           line-height: 18px;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-        html.dcfmk-enabled .dcfmk-opening-date {
+        html.dcui-enabled .dcui-opening-date {
           flex: 0 0 auto;
           margin-left: auto;
-          color: var(--dcfmk-color-muted);
+          color: var(--dcui-color-muted);
           font-size: 11px;
           line-height: 18px;
           white-space: nowrap;
         }
-        html.dcfmk-enabled .dcfmk-opening-date strong {
-          color: var(--dcfmk-color-muted);
+        html.dcui-enabled .dcui-opening-date strong {
+          color: var(--dcui-color-muted);
           font-weight: 400;
         }
-        html.dcfmk-enabled .dcfmk-manager-line {
+        html.dcui-enabled .dcui-manager-line {
           position: relative;
           z-index: 3;
           display: flex;
@@ -7994,27 +7996,27 @@
           overflow: visible;
           border: 0;
           background: transparent;
-          color: var(--dcfmk-color-muted);
+          color: var(--dcui-color-muted);
           font-size: 11px;
           line-height: 17px;
           align-items: flex-start;
           gap: 14px;
         }
-        html.dcfmk-enabled .dcfmk-gallery-intro + .dcfmk-manager-line {
+        html.dcui-enabled .dcui-gallery-intro + .dcui-manager-line {
           margin-top: 0;
         }
-        html.dcfmk-enabled .dcfmk-gallery-intro > .dcfmk-manager-line {
+        html.dcui-enabled .dcui-gallery-intro > .dcui-manager-line {
           width: min(800px, 100%);
           min-height: 17px;
           margin: 0;
           padding: 0 2px 2px;
         }
-        html.dcfmk-enabled .dcfmk-manager-group {
+        html.dcui-enabled .dcui-manager-group {
           display: flex;
           min-width: 0;
           align-items: flex-start;
         }
-        html.dcfmk-enabled .dcfmk-submanager-group {
+        html.dcui-enabled .dcui-submanager-group {
           display: grid;
           flex: 1 1 0;
           grid-template-columns: max-content max-content 17px minmax(0, 1fr);
@@ -8022,32 +8024,32 @@
           align-items: start;
           justify-content: start;
         }
-        html.dcfmk-enabled .dcfmk-manager-group:not(.dcfmk-submanager-group) {
+        html.dcui-enabled .dcui-manager-group:not(.dcui-submanager-group) {
           flex: 0 0 auto;
         }
-        html.dcfmk-enabled .dcfmk-manager-group:not(.dcfmk-submanager-group) .dcfmk-manager-value {
+        html.dcui-enabled .dcui-manager-group:not(.dcui-submanager-group) .dcui-manager-value {
           white-space: nowrap;
         }
-        html.dcfmk-enabled .dcfmk-manager-group strong {
+        html.dcui-enabled .dcui-manager-group strong {
           display: block !important;
           flex: 0 0 auto;
           width: auto !important;
           margin-right: 4px;
-          color: var(--dcfmk-color-muted);
+          color: var(--dcui-color-muted);
           font-weight: 400;
           white-space: nowrap !important;
         }
-        html.dcfmk-enabled .dcfmk-manager-value {
+        html.dcui-enabled .dcui-manager-value {
           display: inline;
           min-width: 0;
-          color: var(--dcfmk-color-link);
+          color: var(--dcui-color-link);
           white-space: normal;
         }
-        html.dcfmk-enabled .dcfmk-manager-value[hidden] {
+        html.dcui-enabled .dcui-manager-value[hidden] {
           display: none !important;
         }
-        html.dcfmk-enabled .dcfmk-submanager-toggle,
-        html.dcfmk-enabled .dcfmk-manager-report-row .btn_mngadmin_report {
+        html.dcui-enabled .dcui-submanager-toggle,
+        html.dcui-enabled .dcui-manager-report-row .btn_mngadmin_report {
           display: inline-block;
           width: auto;
           height: 17px;
@@ -8055,19 +8057,19 @@
           padding: 0;
           border: 0;
           background: transparent;
-          color: var(--dcfmk-color-link) !important;
-          font: 11px/17px var(--dcfmk-font);
+          color: var(--dcui-color-link) !important;
+          font: 11px/17px var(--dcui-font);
           vertical-align: top;
           cursor: pointer;
         }
-        html.dcfmk-enabled .dcfmk-submanager-toggle {
+        html.dcui-enabled .dcui-submanager-toggle {
           grid-column: 3;
           grid-row: 1;
           width: 17px;
           margin-left: 3px;
           white-space: nowrap;
         }
-        html.dcfmk-enabled .dcfmk-submanager-toggle svg {
+        html.dcui-enabled .dcui-submanager-toggle svg {
           display: block;
           width: 12px;
           height: 12px;
@@ -8075,48 +8077,48 @@
           fill: currentColor;
           transition: transform 0.15s ease;
         }
-        html.dcfmk-enabled .dcfmk-submanager-toggle[aria-expanded="true"] svg {
+        html.dcui-enabled .dcui-submanager-toggle[aria-expanded="true"] svg {
           transform: rotate(180deg);
         }
-        html.dcfmk-enabled .dcfmk-submanager-extra-row {
+        html.dcui-enabled .dcui-submanager-extra-row {
           grid-column: 2 / -1;
           grid-row: 2;
           min-width: 0;
           padding-top: 1px;
-          color: var(--dcfmk-color-link);
+          color: var(--dcui-color-link);
           line-height: 17px;
           overflow-wrap: anywhere;
         }
-        html.dcfmk-enabled .dcfmk-submanager-extra-row[hidden] {
+        html.dcui-enabled .dcui-submanager-extra-row[hidden] {
           display: none !important;
         }
-        html.dcfmk-enabled .dcfmk-manager-report-row {
+        html.dcui-enabled .dcui-manager-report-row {
           flex: 0 0 auto;
           min-height: 17px;
           margin-left: auto;
           padding: 0;
         }
-        html.dcfmk-enabled .dcfmk-manager-report-row .btn_mngadmin_report:hover,
-        html.dcfmk-enabled .dcfmk-submanager-toggle:hover {
+        html.dcui-enabled .dcui-manager-report-row .btn_mngadmin_report:hover,
+        html.dcui-enabled .dcui-submanager-toggle:hover {
           text-decoration: underline;
         }
-        html.dcfmk-enabled .dcfmk-manager-report-row .btn_mngadmin_report[aria-busy="true"],
-        html.dcfmk-enabled .dcfmk-gallery-intro .gall_issuebox .relate[aria-busy="true"] {
+        html.dcui-enabled .dcui-manager-report-row .btn_mngadmin_report[aria-busy="true"],
+        html.dcui-enabled .dcui-gallery-intro .gall_issuebox .relate[aria-busy="true"] {
           opacity: 0.55;
           cursor: progress;
         }
-        html.dcfmk-enabled #container > .left_content {
+        html.dcui-enabled #container > .left_content {
           position: relative;
         }
-        html.dcfmk-enabled.dcfmk-relation-popup-opening #relation_popup:not(.dcfmk-anchored-popup) {
+        html.dcui-enabled.dcui-relation-popup-opening #relation_popup:not(.dcui-anchored-popup) {
           visibility: hidden !important;
         }
-        html.dcfmk-enabled #container > .left_content > .dcfmk-anchored-popup {
-          background-color: var(--dcfmk-color-surface) !important;
-          color: var(--dcfmk-color-text);
+        html.dcui-enabled #container > .left_content > .dcui-anchored-popup {
+          background-color: var(--dcui-color-surface) !important;
+          color: var(--dcui-color-text);
           position: absolute !important;
-          top: var(--dcfmk-anchored-popup-top, 0) !important;
-          right: var(--dcfmk-anchored-popup-right, 0) !important;
+          top: var(--dcui-anchored-popup-top, 0) !important;
+          right: var(--dcui-anchored-popup-right, 0) !important;
           bottom: auto !important;
           left: auto !important;
           z-index: 10020 !important;
@@ -8126,7 +8128,7 @@
           margin: 0 !important;
           transform: none !important;
         }
-        html.dcfmk-enabled .list_array_option {
+        html.dcui-enabled .list_array_option {
           position: relative;
           display: flex !important;
           box-sizing: border-box;
@@ -8143,14 +8145,14 @@
           box-shadow: none;
           overflow: visible;
         }
-        html.dcfmk-enabled .list_array_option::before {
+        html.dcui-enabled .list_array_option::before {
           display: none;
           content: none;
         }
-        html.dcfmk-enabled .list_array_option .dcfmk-board-nav-source {
+        html.dcui-enabled .list_array_option .dcui-board-nav-source {
           display: none !important;
         }
-        html.dcfmk-enabled .dcfmk-board-nav {
+        html.dcui-enabled .dcui-board-nav {
           position: relative;
           z-index: 5;
           display: flex;
@@ -8164,13 +8166,13 @@
           gap: 0;
           min-height: 37px;
           height: 37px;
-          border: 1px solid var(--dcfmk-color-border);
+          border: 1px solid var(--dcui-color-border);
           border-radius: 2px;
-          background: var(--dcfmk-color-surface);
+          background: var(--dcui-color-surface);
           box-shadow: 0 1px 1px rgb(0 0 0 / 8%);
           overflow: visible;
         }
-        html.dcfmk-enabled .dcfmk-board-tab {
+        html.dcui-enabled .dcui-board-tab {
           display: inline-flex;
           flex: 0 0 auto;
           min-width: 0;
@@ -8180,45 +8182,45 @@
           margin: 0;
           padding: 0 12px;
           border: 0;
-          border-right: 1px solid var(--dcfmk-color-border-soft);
+          border-right: 1px solid var(--dcui-color-border-soft);
           border-radius: 0;
           background: transparent;
-          color: var(--dcfmk-color-muted);
+          color: var(--dcui-color-muted);
           font-size: 11px;
           font-weight: 700;
           line-height: 35px;
           text-decoration: none;
         }
-        html.dcfmk-enabled .dcfmk-board-tab:hover {
-          border-color: var(--dcfmk-color-border-soft);
-          background: var(--dcfmk-color-subtle);
-          color: var(--dcfmk-color-link);
+        html.dcui-enabled .dcui-board-tab:hover {
+          border-color: var(--dcui-color-border-soft);
+          background: var(--dcui-color-subtle);
+          color: var(--dcui-color-link);
         }
-        html.dcfmk-enabled .dcfmk-board-tab.dcfmk-active {
+        html.dcui-enabled .dcui-board-tab.dcui-active {
           margin: 0;
-          background: var(--dcfmk-color-surface-selected);
-          color: var(--dcfmk-color-nav);
+          background: var(--dcui-color-surface-selected);
+          color: var(--dcui-color-nav);
           box-shadow: none;
         }
-        html.dcfmk-enabled .dcfmk-board-tab-home,
-        html.dcfmk-enabled .dcfmk-board-tab-concept {
-          background: var(--dcfmk-color-surface-selected);
-          color: var(--dcfmk-color-nav);
+        html.dcui-enabled .dcui-board-tab-home,
+        html.dcui-enabled .dcui-board-tab-concept {
+          background: var(--dcui-color-surface-selected);
+          color: var(--dcui-color-nav);
         }
-        html.dcfmk-enabled .dcfmk-board-tab-concept.dcfmk-active {
-          color: var(--dcfmk-color-link-secondary);
+        html.dcui-enabled .dcui-board-tab-concept.dcui-active {
+          color: var(--dcui-color-link-secondary);
         }
-        html.dcfmk-enabled .dcfmk-board-tab-home {
+        html.dcui-enabled .dcui-board-tab-home {
           min-width: 38px;
           width: 38px;
           padding: 0;
         }
-        html.dcfmk-enabled .dcfmk-board-tab-home svg {
+        html.dcui-enabled .dcui-board-tab-home svg {
           width: 14px;
           height: 14px;
           fill: currentColor;
         }
-        html.dcfmk-enabled .dcfmk-board-more {
+        html.dcui-enabled .dcui-board-more {
           position: relative;
           display: flex;
           flex: 0 0 33px;
@@ -8226,10 +8228,10 @@
           height: 35px;
           margin-left: 0;
         }
-        html.dcfmk-enabled .dcfmk-board-more[hidden] {
+        html.dcui-enabled .dcui-board-more[hidden] {
           display: none !important;
         }
-        html.dcfmk-enabled .dcfmk-board-more-button {
+        html.dcui-enabled .dcui-board-more-button {
           display: inline-flex;
           width: 33px;
           height: 35px;
@@ -8237,27 +8239,27 @@
           justify-content: center;
           padding: 0;
           border: 0;
-          border-left: 1px solid var(--dcfmk-color-border-soft);
-          background: var(--dcfmk-color-surface-notice);
-          color: var(--dcfmk-color-muted);
+          border-left: 1px solid var(--dcui-color-border-soft);
+          background: var(--dcui-color-surface-notice);
+          color: var(--dcui-color-muted);
           cursor: pointer;
         }
-        html.dcfmk-enabled .dcfmk-board-more-button:hover,
-        html.dcfmk-enabled .dcfmk-board-more.dcfmk-active .dcfmk-board-more-button,
-        html.dcfmk-enabled .dcfmk-board-more.dcfmk-open .dcfmk-board-more-button {
-          background: var(--dcfmk-color-surface-selected);
-          color: var(--dcfmk-color-nav);
+        html.dcui-enabled .dcui-board-more-button:hover,
+        html.dcui-enabled .dcui-board-more.dcui-active .dcui-board-more-button,
+        html.dcui-enabled .dcui-board-more.dcui-open .dcui-board-more-button {
+          background: var(--dcui-color-surface-selected);
+          color: var(--dcui-color-nav);
         }
-        html.dcfmk-enabled .dcfmk-board-more-button svg {
+        html.dcui-enabled .dcui-board-more-button svg {
           width: 13px;
           height: 13px;
           fill: currentColor;
           transition: transform 120ms ease;
         }
-        html.dcfmk-enabled .dcfmk-board-more.dcfmk-open .dcfmk-board-more-button svg {
+        html.dcui-enabled .dcui-board-more.dcui-open .dcui-board-more-button svg {
           transform: rotate(180deg);
         }
-        html.dcfmk-enabled .dcfmk-board-more-menu {
+        html.dcui-enabled .dcui-board-more-menu {
           position: absolute;
           z-index: 6;
           top: calc(100% + 1px);
@@ -8266,28 +8268,28 @@
           box-sizing: border-box;
           width: 100%;
           min-height: 29px;
-          padding: 4px 38px 4px var(--dcfmk-board-menu-start, 0px);
+          padding: 4px 38px 4px var(--dcui-board-menu-start, 0px);
           flex-wrap: wrap;
           align-items: center;
-          border: 1px solid var(--dcfmk-color-border-strong);
+          border: 1px solid var(--dcui-color-border-strong);
           border-radius: 0 0 2px 2px;
-          background: var(--dcfmk-color-surface-notice);
-          box-shadow: inset 0 1px 0 var(--dcfmk-color-control-highlight);
+          background: var(--dcui-color-surface-notice);
+          box-shadow: inset 0 1px 0 var(--dcui-color-control-highlight);
         }
-        html.dcfmk-enabled .dcfmk-board-more.dcfmk-open + .dcfmk-board-more-menu {
+        html.dcui-enabled .dcui-board-more.dcui-open + .dcui-board-more-menu {
           display: flex;
         }
-        html.dcfmk-enabled .dcfmk-board-more[hidden] + .dcfmk-board-more-menu {
+        html.dcui-enabled .dcui-board-more[hidden] + .dcui-board-more-menu {
           display: none !important;
         }
-        html.dcfmk-enabled .dcfmk-board-more-menu .dcfmk-board-tab {
+        html.dcui-enabled .dcui-board-more-menu .dcui-board-tab {
           height: 29px;
           padding: 0 12px;
-          border-right: 1px solid var(--dcfmk-color-border-soft);
+          border-right: 1px solid var(--dcui-color-border-soft);
           line-height: 29px;
           white-space: nowrap;
         }
-        html.dcfmk-enabled .list_array_option .right_box {
+        html.dcui-enabled .list_array_option .right_box {
           position: relative;
           z-index: 4;
           display: flex !important;
@@ -8305,7 +8307,7 @@
           background: transparent;
           box-shadow: none;
         }
-        html.dcfmk-enabled .list_array_option .right_box .output_array {
+        html.dcui-enabled .list_array_option .right_box .output_array {
           display: flex !important;
           box-sizing: border-box;
           width: 100%;
@@ -8316,7 +8318,7 @@
           margin: 0;
           padding: 0;
         }
-        html.dcfmk-enabled .list_array_option .right_box .switch_btnbox {
+        html.dcui-enabled .list_array_option .right_box .switch_btnbox {
           display: flex !important;
           flex: 0 0 auto;
           width: auto;
@@ -8326,7 +8328,7 @@
           padding: 0;
           font-size: 0;
         }
-        html.dcfmk-enabled .list_array_option .dcfmk-list-size-control {
+        html.dcui-enabled .list_array_option .dcui-list-size-control {
           position: relative;
           float: none !important;
           box-sizing: border-box;
@@ -8334,14 +8336,14 @@
           flex: 0 0 67px;
           height: 32px;
           margin: 0 !important;
-          border: 1px solid var(--dcfmk-color-border-strong);
+          border: 1px solid var(--dcui-color-border-strong);
           border-radius: 3px;
-          background: linear-gradient(to bottom, var(--dcfmk-color-control-gradient-top) 0, var(--dcfmk-color-control-gradient-bottom) 100%);
+          background: linear-gradient(to bottom, var(--dcui-color-control-gradient-top) 0, var(--dcui-color-control-gradient-bottom) 100%);
         }
-        html.dcfmk-enabled .list_array_option .dcfmk-list-size-control > select {
+        html.dcui-enabled .list_array_option .dcui-list-size-control > select {
           display: none !important;
         }
-        html.dcfmk-enabled .list_array_option .dcfmk-list-size-control > .select_area {
+        html.dcui-enabled .list_array_option .dcui-list-size-control > .select_area {
           display: block !important;
           box-sizing: border-box;
           width: 100% !important;
@@ -8350,7 +8352,7 @@
           border: 0;
           background: transparent;
         }
-        html.dcfmk-enabled .list_array_option .dcfmk-list-size-control > .select_area > a {
+        html.dcui-enabled .list_array_option .dcui-list-size-control > .select_area > a {
           position: relative;
           display: block;
           box-sizing: border-box;
@@ -8358,17 +8360,17 @@
           height: 30px;
           overflow: hidden;
           padding: 0 20px 0 9px;
-          color: var(--dcfmk-color-muted);
-          font: 700 10px/30px var(--dcfmk-font);
+          color: var(--dcui-color-muted);
+          font: 700 10px/30px var(--dcui-font);
           text-align: left;
           text-decoration: none;
           white-space: nowrap;
         }
-        html.dcfmk-enabled .list_array_option .dcfmk-list-size-control > .select_area > a:hover {
-          background: var(--dcfmk-color-surface-selected);
-          color: var(--dcfmk-color-nav);
+        html.dcui-enabled .list_array_option .dcui-list-size-control > .select_area > a:hover {
+          background: var(--dcui-color-surface-selected);
+          color: var(--dcui-color-nav);
         }
-        html.dcfmk-enabled .list_array_option .dcfmk-list-size-control .icon_option_more {
+        html.dcui-enabled .list_array_option .dcui-list-size-control .icon_option_more {
           position: absolute !important;
           top: 13px !important;
           right: 9px !important;
@@ -8376,10 +8378,10 @@
           height: 0 !important;
           margin: 0 !important;
           border: 4px solid transparent !important;
-          border-top-color: var(--dcfmk-color-muted) !important;
+          border-top-color: var(--dcui-color-muted) !important;
           background: none !important;
         }
-        html.dcfmk-enabled .list_array_option .dcfmk-list-size-control > #listSizeLayer {
+        html.dcui-enabled .list_array_option .dcui-list-size-control > #listSizeLayer {
           position: absolute !important;
           z-index: 100;
           top: 35px !important;
@@ -8389,74 +8391,74 @@
           width: 67px !important;
           margin: 0 !important;
           padding: 2px 0 !important;
-          border: 1px solid var(--dcfmk-color-border-control);
-          background: var(--dcfmk-color-surface);
+          border: 1px solid var(--dcui-color-border-control);
+          background: var(--dcui-color-surface);
           box-shadow: 0 3px 7px rgb(0 0 0 / 15%);
         }
-        html.dcfmk-enabled .list_array_option .dcfmk-list-size-control > #listSizeLayer li {
+        html.dcui-enabled .list_array_option .dcui-list-size-control > #listSizeLayer li {
           display: block;
           width: 100%;
           height: 24px;
           margin: 0;
           padding: 0;
         }
-        html.dcfmk-enabled .list_array_option .dcfmk-list-size-control > #listSizeLayer a {
+        html.dcui-enabled .list_array_option .dcui-list-size-control > #listSizeLayer a {
           display: block;
           box-sizing: border-box;
           width: 100%;
           height: 24px;
           padding: 0 7px;
-          color: var(--dcfmk-color-text-soft);
-          font: 10px/24px var(--dcfmk-font);
+          color: var(--dcui-color-text-soft);
+          font: 10px/24px var(--dcui-font);
           text-align: left;
           text-decoration: none;
           white-space: nowrap;
         }
-        html.dcfmk-enabled .list_array_option .dcfmk-list-size-control > #listSizeLayer a:hover {
-          background: var(--dcfmk-color-surface-selected);
-          color: var(--dcfmk-color-nav);
+        html.dcui-enabled .list_array_option .dcui-list-size-control > #listSizeLayer a:hover {
+          background: var(--dcui-color-surface-selected);
+          color: var(--dcui-color-nav);
         }
-        html.dcfmk-enabled .dcfmk-list {
+        html.dcui-enabled .dcui-list {
           border-top: 0;
         }
-        html.dcfmk-enabled table.dcfmk-list-table {
+        html.dcui-enabled table.dcui-list-table {
           table-layout: auto;
         }
-        html.dcfmk-enabled table.dcfmk-list-table thead th {
+        html.dcui-enabled table.dcui-list-table thead th {
           box-sizing: border-box;
           height: 33px;
           padding: 7px 6px 5px;
-          border-top: 1px solid var(--dcfmk-color-border-strong);
-          border-bottom: 1px solid var(--dcfmk-color-border-control);
-          background: linear-gradient(to bottom, var(--dcfmk-color-control-gradient-top) 0, var(--dcfmk-color-control-gradient-soft-bottom) 100%);
-          box-shadow: inset 0 -1px 0 var(--dcfmk-color-control-highlight);
-          color: var(--dcfmk-color-text-soft);
+          border-top: 1px solid var(--dcui-color-border-strong);
+          border-bottom: 1px solid var(--dcui-color-border-control);
+          background: linear-gradient(to bottom, var(--dcui-color-control-gradient-top) 0, var(--dcui-color-control-gradient-soft-bottom) 100%);
+          box-shadow: inset 0 -1px 0 var(--dcui-color-control-highlight);
+          color: var(--dcui-color-text-soft);
           font-size: 13px;
           white-space: nowrap;
         }
-        html.dcfmk-enabled table.dcfmk-list-table tbody td {
+        html.dcui-enabled table.dcui-list-table tbody td {
           box-sizing: border-box;
           height: 36px;
           padding: 6px 6px 4px;
-          color: var(--dcfmk-color-text-soft);
+          color: var(--dcui-color-text-soft);
           font-size: 11px;
           line-height: 20px;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .dcfmk-hidden-number,
-        html.dcfmk-enabled table.dcfmk-list-table.dcfmk-has-subject-column .gall_num {
+        html.dcui-enabled table.dcui-list-table .dcui-hidden-number,
+        html.dcui-enabled table.dcui-list-table.dcui-has-subject-column .gall_num {
           display: none !important;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .dcfmk-tab-cell {
+        html.dcui-enabled table.dcui-list-table .dcui-tab-cell {
           box-sizing: border-box;
           width: 68px;
           max-width: 68px;
           padding-left: 8px;
           padding-right: 8px;
-          color: var(--dcfmk-color-link-muted);
+          color: var(--dcui-color-link-muted);
           text-align: center;
           white-space: nowrap;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .dcfmk-subject-filter-link {
+        html.dcui-enabled table.dcui-list-table .dcui-subject-filter-link {
           display: block;
           overflow: hidden;
           width: 100%;
@@ -8464,40 +8466,40 @@
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .dcfmk-subject-filter-link:hover,
-        html.dcfmk-enabled table.dcfmk-list-table .dcfmk-subject-filter-link:focus-visible {
-          color: var(--dcfmk-color-link);
+        html.dcui-enabled table.dcui-list-table .dcui-subject-filter-link:hover,
+        html.dcui-enabled table.dcui-list-table .dcui-subject-filter-link:focus-visible {
+          color: var(--dcui-color-link);
           text-decoration: underline;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .gall_tit {
+        html.dcui-enabled table.dcui-list-table .gall_tit {
           width: auto;
           padding: 6px 6px 4px;
           text-align: left;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .gall_tit > a:not(.reply_numbox) {
-          color: var(--dcfmk-color-text-strong);
+        html.dcui-enabled table.dcui-list-table .gall_tit > a:not(.reply_numbox) {
+          color: var(--dcui-color-text-strong);
           font-size: 13px;
           line-height: 20px;
         }
-        html.dcfmk-enabled.dcfmk-realtime-best table.dcfmk-list-table {
+        html.dcui-enabled.dcui-realtime-best table.dcui-list-table {
           table-layout: fixed;
         }
-        html.dcfmk-enabled.dcfmk-realtime-best table.dcfmk-list-table colgroup col:nth-child(5),
-        html.dcfmk-enabled.dcfmk-realtime-best table.dcfmk-list-table .gall_count {
+        html.dcui-enabled.dcui-realtime-best table.dcui-list-table colgroup col:nth-child(5),
+        html.dcui-enabled.dcui-realtime-best table.dcui-list-table .gall_count {
           width: 68px;
           min-width: 68px;
         }
-        html.dcfmk-enabled.dcfmk-realtime-best table.dcfmk-list-table
+        html.dcui-enabled.dcui-realtime-best table.dcui-list-table
           tbody tr.thum > td {
           height: 57px;
           vertical-align: middle;
         }
-        html.dcfmk-enabled.dcfmk-realtime-best table.dcfmk-list-table
+        html.dcui-enabled.dcui-realtime-best table.dcui-list-table
           tbody tr.thum .gall_tit {
           padding-top: 3px;
           padding-bottom: 4px;
         }
-        html.dcfmk-enabled.dcfmk-realtime-best table.dcfmk-list-table
+        html.dcui-enabled.dcui-realtime-best table.dcui-list-table
           tbody tr.thum .gall_tit > a:not(.reply_numbox) {
           position: relative;
           display: inline-flex;
@@ -8507,7 +8509,7 @@
           padding-left: 80px;
           vertical-align: middle;
         }
-        html.dcfmk-enabled.dcfmk-realtime-best table.dcfmk-list-table
+        html.dcui-enabled.dcui-realtime-best table.dcui-list-table
           tbody tr.thum .thumimg {
           position: absolute !important;
           top: 0 !important;
@@ -8516,9 +8518,9 @@
           height: 50px !important;
           overflow: hidden;
           transform: none !important;
-          background: var(--dcfmk-color-surface-muted);
+          background: var(--dcui-color-surface-muted);
         }
-        html.dcfmk-enabled.dcfmk-realtime-best table.dcfmk-list-table
+        html.dcui-enabled.dcui-realtime-best table.dcui-list-table
           tbody tr.thum .thumimg > img {
           position: static !important;
           display: block;
@@ -8526,51 +8528,51 @@
           height: 50px !important;
           object-fit: cover;
         }
-        html.dcfmk-enabled.dcfmk-realtime-best table.dcfmk-list-table
+        html.dcui-enabled.dcui-realtime-best table.dcui-list-table
           tbody tr.thum .reply_numbox {
           vertical-align: middle;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .gall_writer {
+        html.dcui-enabled table.dcui-list-table .gall_writer {
           width: 108px;
           min-width: 94px;
           max-width: 116px;
           text-align: left;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .gall_date {
+        html.dcui-enabled table.dcui-list-table .gall_date {
           width: 72px;
           min-width: 72px;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .gall_count,
-        html.dcfmk-enabled table.dcfmk-list-table .gall_recommend {
+        html.dcui-enabled table.dcui-list-table .gall_count,
+        html.dcui-enabled table.dcui-list-table .gall_recommend {
           width: 52px;
           min-width: 45px;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .gall_recommend {
-          color: var(--dcfmk-color-link-bright);
+        html.dcui-enabled table.dcui-list-table .gall_recommend {
+          color: var(--dcui-color-link-bright);
           font-weight: 700;
         }
-        html.dcfmk-enabled table.dcfmk-list-table tr.dcfmk-row-notice,
-        html.dcfmk-enabled table.dcfmk-list-table tbody tr:hover {
-          background: var(--dcfmk-color-surface-muted);
+        html.dcui-enabled table.dcui-list-table tr.dcui-row-notice,
+        html.dcui-enabled table.dcui-list-table tbody tr:hover {
+          background: var(--dcui-color-surface-muted);
         }
-        html.dcfmk-enabled table.dcfmk-list-table tbody tr.dcfmk-current-post,
-        html.dcfmk-enabled table.dcfmk-list-table tbody tr.dcfmk-current-post:hover,
-        html.dcfmk-enabled table.dcfmk-list-table tbody tr.dcfmk-current-post > td {
-          background: var(--dcfmk-color-surface-selected) !important;
+        html.dcui-enabled table.dcui-list-table tbody tr.dcui-current-post,
+        html.dcui-enabled table.dcui-list-table tbody tr.dcui-current-post:hover,
+        html.dcui-enabled table.dcui-list-table tbody tr.dcui-current-post > td {
+          background: var(--dcui-color-surface-selected) !important;
         }
-        html.dcfmk-enabled table.dcfmk-list-table tbody tr.dcfmk-current-post .dcfmk-tab-cell {
-          box-shadow: inset 3px 0 0 var(--dcfmk-color-nav-light);
-          color: var(--dcfmk-color-nav);
+        html.dcui-enabled table.dcui-list-table tbody tr.dcui-current-post .dcui-tab-cell {
+          box-shadow: inset 3px 0 0 var(--dcui-color-nav-light);
+          color: var(--dcui-color-nav);
           font-weight: 700;
         }
-        html.dcfmk-enabled table.dcfmk-list-table tbody tr.dcfmk-current-post .gall_tit > a:not(.reply_numbox) {
-          color: var(--dcfmk-color-nav);
+        html.dcui-enabled table.dcui-list-table tbody tr.dcui-current-post .gall_tit > a:not(.reply_numbox) {
+          color: var(--dcui-color-nav);
           font-weight: 700;
         }
-        html.dcfmk-enabled .list_bottom_btnbox {
+        html.dcui-enabled .list_bottom_btnbox {
           display: none !important;
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-menu {
+        html.dcui-enabled .dcui-fm-bottom-menu {
           display: flex;
           box-sizing: border-box;
           align-items: flex-start;
@@ -8578,21 +8580,21 @@
           min-height: 43px;
           margin-top: -1px;
           padding: 7px 10px;
-          border-top: 1px solid var(--dcfmk-color-border-strong);
+          border-top: 1px solid var(--dcui-color-border-strong);
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-menu form,
-        html.dcfmk-enabled .dcfmk-fm-bottom-menu fieldset {
+        html.dcui-enabled .dcui-fm-bottom-menu form,
+        html.dcui-enabled .dcui-fm-bottom-menu fieldset {
           margin: 0;
           padding: 0;
           border: 0;
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-menu .buttom_search_wrap {
+        html.dcui-enabled .dcui-fm-bottom-menu .buttom_search_wrap {
           display: flex;
           width: auto !important;
           height: 28px;
           margin: 0;
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-menu .bottom_array {
+        html.dcui-enabled .dcui-fm-bottom-menu .bottom_array {
           box-sizing: border-box;
           width: 105px;
           height: 28px;
@@ -8600,7 +8602,7 @@
           border: 0;
           background: transparent;
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-menu .select_area {
+        html.dcui-enabled .dcui-fm-bottom-menu .select_area {
           position: relative;
           box-sizing: border-box;
           width: 100% !important;
@@ -8608,23 +8610,23 @@
           height: 28px;
           overflow: hidden;
           padding: 0 24px 0 7px;
-          border-radius: var(--dcfmk-control-radius);
-          color: var(--dcfmk-color-nav-light);
+          border-radius: var(--dcui-control-radius);
+          color: var(--dcui-color-nav-light);
           cursor: pointer;
-          font: 10px/26px var(--dcfmk-font);
+          font: 10px/26px var(--dcui-font);
           white-space: nowrap;
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-menu #search_type_txt {
+        html.dcui-enabled .dcui-fm-bottom-menu #search_type_txt {
           display: block;
           overflow: hidden;
           max-width: 72px;
-          color: var(--dcfmk-color-nav-light);
+          color: var(--dcui-color-nav-light);
           font-size: 10px;
           line-height: 26px;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-menu .select_area > .inner {
+        html.dcui-enabled .dcui-fm-bottom-menu .select_area > .inner {
           position: absolute !important;
           inset: 0 0 0 auto !important;
           display: flex !important;
@@ -8635,10 +8637,10 @@
           height: 100% !important;
           margin: 0 !important;
           padding: 0 !important;
-          border-left-color: var(--dcfmk-control-addon-border);
-          background: var(--dcfmk-control-addon-surface);
+          border-left-color: var(--dcui-control-addon-border);
+          background: var(--dcui-control-addon-surface);
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-menu .select_area > .inner > .icon_option_more {
+        html.dcui-enabled .dcui-fm-bottom-menu .select_area > .inner > .icon_option_more {
           position: static !important;
           display: block !important;
           box-sizing: content-box !important;
@@ -8646,31 +8648,31 @@
           height: 0 !important;
           margin: 3px 0 0 !important;
           border: 3px solid transparent !important;
-          border-top-color: var(--dcfmk-color-nav-light) !important;
+          border-top-color: var(--dcui-color-nav-light) !important;
           background: none !important;
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-menu .bottom_search {
+        html.dcui-enabled .dcui-fm-bottom-menu .bottom_search {
           position: relative !important;
           box-sizing: border-box;
           width: 175px;
           height: 28px;
           overflow: hidden;
           margin-left: 0 !important;
-          border-radius: var(--dcfmk-control-radius);
+          border-radius: var(--dcui-control-radius);
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-menu .bottom_search .inner_search {
+        html.dcui-enabled .dcui-fm-bottom-menu .bottom_search .inner_search {
           float: none !important;
           width: 100%;
           height: 26px;
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-menu .bottom_search .in_keyword {
+        html.dcui-enabled .dcui-fm-bottom-menu .bottom_search .in_keyword {
           box-sizing: border-box;
           width: 100%;
           height: 26px;
           padding-right: 32px !important;
           background: transparent;
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-menu .buttom_search_wrap .bottom_search > .bnt_search {
+        html.dcui-enabled .dcui-fm-bottom-menu .buttom_search_wrap .bottom_search > .bnt_search {
           position: absolute !important;
           inset: 1px 1px auto auto !important;
           top: 1px !important;
@@ -8684,36 +8686,36 @@
           border: 0 !important;
           background: transparent !important;
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-menu .buttom_search_wrap .bottom_search > .bnt_search::before {
+        html.dcui-enabled .dcui-fm-bottom-menu .buttom_search_wrap .bottom_search > .bnt_search::before {
           position: absolute;
           top: 6px;
           left: 6px;
           box-sizing: border-box;
           width: 8px;
           height: 8px;
-          border: 1.5px solid var(--dcfmk-color-icon);
+          border: 1.5px solid var(--dcui-color-icon);
           border-radius: 50%;
           content: "";
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-menu .buttom_search_wrap .bottom_search > .bnt_search::after {
+        html.dcui-enabled .dcui-fm-bottom-menu .buttom_search_wrap .bottom_search > .bnt_search::after {
           position: absolute;
           top: 14px;
           left: 13px;
           width: 5px;
           height: 1.5px;
-          background: var(--dcfmk-color-icon);
+          background: var(--dcui-color-icon);
           content: "";
           transform: rotate(45deg);
           transform-origin: left center;
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-actions {
+        html.dcui-enabled .dcui-fm-bottom-actions {
           display: flex;
           flex: 0 0 auto;
           align-items: center;
           gap: 5px;
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-button,
-        html.dcfmk-enabled .list_array_option .dcfmk-top-write-button {
+        html.dcui-enabled .dcui-fm-bottom-button,
+        html.dcui-enabled .list_array_option .dcui-top-write-button {
           display: inline-flex;
           box-sizing: border-box;
           height: 28px;
@@ -8721,56 +8723,56 @@
           justify-content: center;
           margin: 0;
           padding: 0 12px;
-          border: 1px solid var(--dcfmk-color-border-strong);
+          border: 1px solid var(--dcui-color-border-strong);
           border-radius: 3px;
-          background: linear-gradient(to bottom, var(--dcfmk-color-control-gradient-top) 0, var(--dcfmk-color-control-gradient-bottom) 100%);
-          color: var(--dcfmk-color-text-soft);
-          font: 11px/26px var(--dcfmk-font);
+          background: linear-gradient(to bottom, var(--dcui-color-control-gradient-top) 0, var(--dcui-color-control-gradient-bottom) 100%);
+          color: var(--dcui-color-text-soft);
+          font: 11px/26px var(--dcui-font);
           letter-spacing: normal;
           white-space: normal;
           cursor: pointer;
           text-decoration: none;
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-button,
-        html.dcfmk-enabled .list_array_option .dcfmk-top-write-button {
+        html.dcui-enabled .dcui-fm-bottom-button,
+        html.dcui-enabled .list_array_option .dcui-top-write-button {
           text-shadow: none;
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-actions > .dcfmk-fm-bottom-button,
-        html.dcfmk-enabled .list_array_option .dcfmk-top-write-button {
+        html.dcui-enabled .dcui-fm-bottom-actions > .dcui-fm-bottom-button,
+        html.dcui-enabled .list_array_option .dcui-top-write-button {
           width: auto !important;
           min-width: 64px !important;
         }
-        html.dcfmk-enabled .list_array_option .dcfmk-top-write-button {
-          border-color: var(--dcfmk-color-border-strong) !important;
-          color: var(--dcfmk-color-text-soft) !important;
+        html.dcui-enabled .list_array_option .dcui-top-write-button {
+          border-color: var(--dcui-color-border-strong) !important;
+          color: var(--dcui-color-text-soft) !important;
           min-width: 70px !important;
           height: 32px;
           padding-right: 14px;
           padding-left: 14px;
           line-height: 30px;
         }
-        html.dcfmk-enabled .dcfmk-fm-concept-button.dcfmk-active {
-          color: var(--dcfmk-color-link-secondary);
+        html.dcui-enabled .dcui-fm-concept-button.dcui-active {
+          color: var(--dcui-color-link-secondary);
           font-weight: 700;
         }
-        html.dcfmk-enabled .dcfmk-fm-write-button::before,
-        html.dcfmk-enabled .list_array_option .dcfmk-top-write-button::before {
+        html.dcui-enabled .dcui-fm-write-button::before,
+        html.dcui-enabled .list_array_option .dcui-top-write-button::before {
           width: auto;
           height: auto;
           margin: 0 4px 0 0;
           background: none;
           font: inherit;
           letter-spacing: normal;
-          color: var(--dcfmk-color-muted);
+          color: var(--dcui-color-muted);
           content: "✎";
         }
-        html.dcfmk-enabled .dcfmk-fm-bottom-button:hover,
-        html.dcfmk-enabled .list_array_option .dcfmk-top-write-button:hover {
-          border-color: var(--dcfmk-color-faint);
+        html.dcui-enabled .dcui-fm-bottom-button:hover,
+        html.dcui-enabled .list_array_option .dcui-top-write-button:hover {
+          border-color: var(--dcui-color-faint);
           box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
           text-decoration: none;
         }
-        html.dcfmk-enabled .bottom_paging_wrap {
+        html.dcui-enabled .bottom_paging_wrap {
           box-sizing: border-box;
           height: 36px !important;
           min-height: 36px;
@@ -8778,23 +8780,23 @@
           padding-top: 10px;
           border-top: 0;
         }
-        html.dcfmk-enabled .bottom_paging_box > a,
-        html.dcfmk-enabled .bottom_paging_box > em {
+        html.dcui-enabled .bottom_paging_box > a,
+        html.dcui-enabled .bottom_paging_box > em {
           width: auto;
           min-width: 26px;
           height: 26px;
           padding: 0 6px !important;
           border-radius: 2px;
-          color: var(--dcfmk-color-faint);
+          color: var(--dcui-color-faint);
           font: 700 12px/24px Tahoma, sans-serif;
         }
-        html.dcfmk-enabled .bottom_paging_box > em {
-          border-color: var(--dcfmk-color-faint);
-          background: var(--dcfmk-color-subtle);
-          color: var(--dcfmk-color-text-soft);
+        html.dcui-enabled .bottom_paging_box > em {
+          border-color: var(--dcui-color-faint);
+          background: var(--dcui-color-subtle);
+          color: var(--dcui-color-text-soft);
         }
-        html.dcfmk-enabled .bottom_paging_box .page_end,
-        html.dcfmk-enabled .bottom_movebox {
+        html.dcui-enabled .bottom_paging_box .page_end,
+        html.dcui-enabled .bottom_movebox {
           display: none !important;
         }
       `;
@@ -8809,13 +8811,13 @@
       const articleRoot = DcAdapter.articleRoot();
       if (!articleRoot) return null;
 
-      articleRoot.classList.add("dcfmk-article");
+      articleRoot.classList.add("dcui-article");
       const articleHeader = DcAdapter.articleHeader();
       const articleBody = DcAdapter.articleBody();
       const commentRoot = DcAdapter.commentRoot();
-      articleHeader?.classList.add("dcfmk-article-header");
-      articleBody?.classList.add("dcfmk-article-body");
-      commentRoot?.classList.add("dcfmk-comments");
+      articleHeader?.classList.add("dcui-article-header");
+      articleBody?.classList.add("dcui-article-body");
+      commentRoot?.classList.add("dcui-comments");
       this.decorateHeader(articleHeader);
       this.bindRecommendationReadinessGuard();
       this.mountQuickNavigation({ articleRoot, articleHeader, articleBody, commentRoot });
@@ -8826,7 +8828,7 @@
     },
 
     mountQuickNavigation({ articleRoot, articleHeader, articleBody, commentRoot }) {
-      if (document.getElementById("dcfmk-article-quick-nav")) return;
+      if (document.getElementById("dcui-article-quick-nav")) return;
 
       const ensureTargetId = (node, fallbackId) => {
         if (!node) return "";
@@ -8839,7 +8841,7 @@
           label: "위로",
           icon: "\uf062",
           target: document.getElementById("top") || articleHeader || articleRoot,
-          fallbackId: "dcfmk-article-top",
+          fallbackId: "dcui-article-top",
         },
         {
           role: "bottom",
@@ -8848,20 +8850,20 @@
           target: document.getElementById("bottom_listwrap")
             || document.querySelector(".view_bottom_btnbox")
             || articleBody,
-          fallbackId: "dcfmk-article-bottom",
+          fallbackId: "dcui-article-bottom",
         },
         {
           role: "comments",
           label: "댓글로 가기",
           icon: "\uf075",
           target: commentRoot,
-          fallbackId: "dcfmk-comments-anchor",
+          fallbackId: "dcui-comments-anchor",
         },
       ];
       if (targets.some((item) => !item.target)) return;
 
       const nav = document.createElement("nav");
-      nav.id = "dcfmk-article-quick-nav";
+      nav.id = "dcui-article-quick-nav";
       nav.setAttribute("aria-label", "본문 빠른 이동");
       for (const item of targets) {
         const targetId = ensureTargetId(item.target, item.fallbackId);
@@ -8879,7 +8881,7 @@
         });
 
         const icon = document.createElement("span");
-        icon.className = `dcfmk-quick-nav-icon dcfmk-quick-nav-icon-${item.role}`;
+        icon.className = `dcui-quick-nav-icon dcui-quick-nav-icon-${item.role}`;
         icon.setAttribute("aria-hidden", "true");
         icon.textContent = item.icon;
         const text = document.createElement("b");
@@ -8892,13 +8894,13 @@
 
     bindResponsiveMovieFrames(articleBody) {
       const root = articleBody?.querySelector(".writing_view_box") || articleBody;
-      if (!root || root.dataset.dcfmkMovieFramesBound === "true") return;
-      root.dataset.dcfmkMovieFramesBound = "true";
+      if (!root || root.dataset.dcuiMovieFramesBound === "true") return;
+      root.dataset.dcuiMovieFramesBound = "true";
       const selector = 'iframe[id^="movieIcon"][src*="/board/movie/movie_view"]';
       const prepare = (frame) => {
         if (!(frame instanceof HTMLIFrameElement)) return;
-        if (frame.dataset.dcfmkResponsiveMovieBound !== "true") {
-          frame.dataset.dcfmkResponsiveMovieBound = "true";
+        if (frame.dataset.dcuiResponsiveMovieBound !== "true") {
+          frame.dataset.dcuiResponsiveMovieBound = "true";
           frame.addEventListener("load", () => this.fitResponsiveMovieFrame(frame));
         }
         this.fitResponsiveMovieFrame(frame);
@@ -8940,10 +8942,10 @@
       const originalHeight = Number.parseFloat(videoInbox.style.height) || videoInbox.getBoundingClientRect().height;
       if (!(originalWidth > 0) || !(originalHeight > 0)) return;
 
-      let style = innerDocument.getElementById("dcfmk-responsive-movie-style");
+      let style = innerDocument.getElementById("dcui-responsive-movie-style");
       if (!style) {
         style = innerDocument.createElement("style");
-        style.id = "dcfmk-responsive-movie-style";
+        style.id = "dcui-responsive-movie-style";
         innerDocument.head.appendChild(style);
       }
       style.textContent = `
@@ -8983,7 +8985,7 @@
       frame.style.setProperty("max-width", "100%", "important");
       frame.style.setProperty("display", "block", "important");
 
-      frame.__dcfmkMovieResizeObserver?.disconnect();
+      frame.__dcuiMovieResizeObserver?.disconnect();
       const syncHeight = () => {
         if (!frame.isConnected || !container.isConnected) return;
         const height = Math.ceil(container.getBoundingClientRect().height);
@@ -8991,7 +8993,7 @@
       };
       const resizeObserver = new ResizeObserver(syncHeight);
       resizeObserver.observe(container);
-      frame.__dcfmkMovieResizeObserver = resizeObserver;
+      frame.__dcuiMovieResizeObserver = resizeObserver;
       innerDocument.defaultView?.requestAnimationFrame(() => {
         syncHeight();
         innerDocument.defaultView?.requestAnimationFrame(syncHeight);
@@ -8999,8 +9001,8 @@
     },
 
     bindRecommendationReadinessGuard() {
-      if (document.documentElement.dataset.dcfmkRecommendationGuard === "true") return;
-      document.documentElement.dataset.dcfmkRecommendationGuard = "true";
+      if (document.documentElement.dataset.dcuiRecommendationGuard === "true") return;
+      document.documentElement.dataset.dcuiRecommendationGuard = "true";
       const queued = new WeakSet();
       const replaying = new WeakSet();
       const ready = (button) => {
@@ -9043,16 +9045,16 @@
     },
 
     decorateHeader(articleHeader) {
-      if (!articleHeader || articleHeader.dataset.dcfmkHeaderDecorated === "true") return;
+      if (!articleHeader || articleHeader.dataset.dcuiHeaderDecorated === "true") return;
 
       const title = articleHeader.querySelector(".title");
       const originalDate = articleHeader.querySelector(".gall_date");
       if (title && originalDate) {
         const date = document.createElement("span");
-        date.className = "dcfmk-article-date";
+        date.className = "dcui-article-date";
         date.textContent = cleanText(originalDate.getAttribute("title") || originalDate.textContent);
         title.appendChild(date);
-        originalDate.classList.add("dcfmk-original-date");
+        originalDate.classList.add("dcui-original-date");
       }
 
       const metrics = [
@@ -9070,27 +9072,27 @@
         comment.textContent = `댓글 ${value}`;
       }
 
-      articleHeader.dataset.dcfmkHeaderDecorated = "true";
+      articleHeader.dataset.dcuiHeaderDecorated = "true";
     },
 
     injectStyle() {
-      if (document.getElementById("dcfmk-article-style")) return;
+      if (document.getElementById("dcui-article-style")) return;
 
-      const fontAwesomeUrl = GM_getResourceURL("dcfmk-fontawesome");
+      const fontAwesomeUrl = GM_getResourceURL("dcui-fontawesome");
       const style = document.createElement("style");
-      style.id = "dcfmk-article-style";
+      style.id = "dcui-article-style";
       style.textContent = `
         @font-face {
-          font-family: "dcfmk-FontAwesome";
+          font-family: "dcui-FontAwesome";
           src: url("${fontAwesomeUrl}") format("woff2");
           font-style: normal;
           font-weight: normal;
           font-display: block;
         }
-        #dcfmk-article-quick-nav {
+        #dcui-article-quick-nav {
           display: none;
         }
-        html.dcfmk-enabled #dcfmk-article-quick-nav {
+        html.dcui-enabled #dcui-article-quick-nav {
           position: fixed;
           right: max(12px, calc((100vw - 1050px) / 2 - 40px));
           bottom: 50px;
@@ -9102,13 +9104,13 @@
           margin: 0;
           padding: 0;
           overflow: visible;
-          border: 1px solid var(--dcfmk-color-border-strong);
+          border: 1px solid var(--dcui-color-border-strong);
           border-radius: 4px;
-          background: var(--dcfmk-color-surface-muted);
+          background: var(--dcui-color-surface-muted);
           box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-          font-family: var(--dcfmk-font);
+          font-family: var(--dcui-font);
         }
-        html.dcfmk-enabled #dcfmk-article-quick-nav > a {
+        html.dcui-enabled #dcui-article-quick-nav > a {
           position: relative;
           display: flex;
           box-sizing: border-box;
@@ -9118,21 +9120,21 @@
           justify-content: center;
           margin: 0;
           padding: 0;
-          border-bottom: 1px solid var(--dcfmk-color-border-soft);
-          color: var(--dcfmk-color-faint);
+          border-bottom: 1px solid var(--dcui-color-border-soft);
+          color: var(--dcui-color-faint);
           text-decoration: none;
         }
-        html.dcfmk-enabled #dcfmk-article-quick-nav > a:last-child {
+        html.dcui-enabled #dcui-article-quick-nav > a:last-child {
           border-bottom: 0;
         }
-        html.dcfmk-enabled #dcfmk-article-quick-nav > a:hover,
-        html.dcfmk-enabled #dcfmk-article-quick-nav > a:focus-visible {
+        html.dcui-enabled #dcui-article-quick-nav > a:hover,
+        html.dcui-enabled #dcui-article-quick-nav > a:focus-visible {
           z-index: 1;
-          background: var(--dcfmk-color-surface-muted);
-          color: var(--dcfmk-color-nav-light);
+          background: var(--dcui-color-surface-muted);
+          color: var(--dcui-color-nav-light);
           outline: 0;
         }
-        html.dcfmk-enabled #dcfmk-article-quick-nav > a > b {
+        html.dcui-enabled #dcui-article-quick-nav > a > b {
           position: absolute;
           overflow: hidden;
           width: 1px;
@@ -9140,71 +9142,71 @@
           clip-path: inset(50%);
           white-space: nowrap;
         }
-        html.dcfmk-enabled #dcfmk-article-quick-nav .dcfmk-quick-nav-icon {
+        html.dcui-enabled #dcui-article-quick-nav .dcui-quick-nav-icon {
           display: inline-block;
           flex: 0 0 auto;
           width: 16px;
           color: currentColor;
-          font: normal normal normal 13px/1 "dcfmk-FontAwesome";
+          font: normal normal normal 13px/1 "dcui-FontAwesome";
           text-align: center;
           text-rendering: auto;
           -webkit-font-smoothing: antialiased;
           -moz-osx-font-smoothing: grayscale;
         }
-        html.dcfmk-enabled #top,
-        html.dcfmk-enabled #bottom_listwrap,
-        html.dcfmk-enabled #dcfmk-article-top,
-        html.dcfmk-enabled #dcfmk-article-bottom,
-        html.dcfmk-enabled #dcfmk-comments-anchor {
+        html.dcui-enabled #top,
+        html.dcui-enabled #bottom_listwrap,
+        html.dcui-enabled #dcui-article-top,
+        html.dcui-enabled #dcui-article-bottom,
+        html.dcui-enabled #dcui-comments-anchor {
           scroll-margin-top: 8px;
         }
-        html.dcfmk-enabled .dcfmk-article {
+        html.dcui-enabled .dcui-article {
           box-sizing: border-box;
           width: 100%;
-          color: var(--dcfmk-color-text);
-          font-family: var(--dcfmk-font);
+          color: var(--dcui-color-text);
+          font-family: var(--dcui-font);
         }
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header {
+        html.dcui-enabled .dcui-article .dcui-article-header {
           margin: 0;
           padding: 0;
-          border-top: 2px solid var(--dcfmk-color-nav-light);
-          border-bottom: 1px solid var(--dcfmk-color-border);
-          background: var(--dcfmk-color-surface);
+          border-top: 2px solid var(--dcui-color-nav-light);
+          border-bottom: 1px solid var(--dcui-color-border);
+          background: var(--dcui-color-surface);
         }
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .title {
+        html.dcui-enabled .dcui-article .dcui-article-header .title {
           min-height: 52px;
           margin: 0;
           padding: 15px 12px 11px;
-          color: var(--dcfmk-color-text-strong);
+          color: var(--dcui-color-text-strong);
           font-size: 19px;
           font-weight: 700;
           line-height: 25px;
           letter-spacing: -0.4px;
         }
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .gall_writer {
+        html.dcui-enabled .dcui-article .dcui-article-header .gall_writer {
           min-height: 38px;
           padding: 9px 12px;
-          border-top: 1px solid var(--dcfmk-color-border);
-          background: var(--dcfmk-color-subtle);
-          color: var(--dcfmk-color-muted);
+          border-top: 1px solid var(--dcui-color-border);
+          background: var(--dcui-color-subtle);
+          color: var(--dcui-color-muted);
           line-height: 19px;
         }
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .gall_writer .nickname,
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .gall_writer .nickname em {
-          color: var(--dcfmk-color-text-soft);
+        html.dcui-enabled .dcui-article .dcui-article-header .gall_writer .nickname,
+        html.dcui-enabled .dcui-article .dcui-article-header .gall_writer .nickname em {
+          color: var(--dcui-color-text-soft);
           font-weight: 700;
         }
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .gall_date {
+        html.dcui-enabled .dcui-article .dcui-article-header .gall_date {
           margin-left: 9px;
-          color: var(--dcfmk-color-faint);
+          color: var(--dcui-color-faint);
           font-size: 11px;
         }
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .fr > span {
+        html.dcui-enabled .dcui-article .dcui-article-header .fr > span {
           margin-left: 10px;
-          color: var(--dcfmk-color-muted);
+          color: var(--dcui-color-muted);
           font-size: 11px;
         }
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .gall_comment a {
+        html.dcui-enabled .dcui-article .dcui-article-header .gall_comment a {
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -9214,164 +9216,166 @@
           padding: 0 10px 2px;
           line-height: normal;
           vertical-align: middle;
-          color: var(--dcfmk-color-link);
+          color: var(--dcui-color-link);
           text-decoration: none;
         }
-        html.dcfmk-enabled .dcfmk-article-body {
+        html.dcui-enabled .dcui-article-body {
           border-bottom: 0;
-          background: var(--dcfmk-color-surface);
+          background: var(--dcui-color-surface);
         }
-        html.dcfmk-enabled .dcfmk-article-body > .inner {
+        html.dcui-enabled .dcui-article-body > .inner {
           box-sizing: border-box;
           width: 100%;
           padding: 32px 12px 22px;
         }
-        html.dcfmk-enabled .dcfmk-article-body .writing_view_box,
-        html.dcfmk-enabled .dcfmk-article-body .write_div {
+        html.dcui-enabled .dcui-article-body .writing_view_box,
+        html.dcui-enabled .dcui-article-body .write_div {
           box-sizing: border-box;
           width: 100% !important;
           max-width: 100%;
-          color: var(--dcfmk-color-text-strong);
+          color: var(--dcui-color-text-strong);
           font-size: 14px;
           line-height: 1.7;
         }
-        html.dcfmk-enabled .dcfmk-article-body .writing_view_box img,
-        html.dcfmk-enabled .dcfmk-article-body .writing_view_box video {
+        html.dcui-enabled .dcui-article-body .writing_view_box img,
+        html.dcui-enabled .dcui-article-body .writing_view_box video {
           max-width: 100% !important;
           height: auto !important;
         }
-        html.dcfmk-enabled .dcfmk-article-body .writing_view_box iframe,
-        html.dcfmk-enabled .dcfmk-article-body .writing_view_box embed {
+        html.dcui-enabled .dcui-article-body .writing_view_box iframe,
+        html.dcui-enabled .dcui-article-body .writing_view_box embed {
           max-width: 100% !important;
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box {
+        html.dcui-enabled .dcui-article-body .btn_recommend_box {
           margin-top: 0 !important;
           margin-bottom: 0 !important;
           padding-top: 0 !important;
           padding-bottom: 0 !important;
         }
-        html.dcfmk-enabled .dcfmk-article-body .recom_bottom_box {
+        html.dcui-enabled .dcui-article-body .recom_bottom_box {
           margin-top: 0 !important;
           margin-bottom: 0 !important;
           padding-top: 0 !important;
           padding-bottom: 0 !important;
         }
-        html.dcfmk-enabled .dcfmk-article-body .appending_file_box {
+        html.dcui-enabled .dcui-article-body .appending_file_box {
           margin-top: 24px;
           padding: 10px 12px;
-          border: 1px solid var(--dcfmk-color-border);
-          background: var(--dcfmk-color-subtle);
-          color: var(--dcfmk-color-muted);
+          border: 1px solid var(--dcui-color-border);
+          background: var(--dcui-color-subtle);
+          color: var(--dcui-color-muted);
         }
-        html.dcfmk-enabled .view_bottom_btnbox {
+        html.dcui-enabled .view_bottom_btnbox {
           min-height: 44px;
           padding-top: 10px;
-          border-top: 1px solid var(--dcfmk-color-border);
+          border-top: 1px solid var(--dcui-color-border);
         }
-        html.dcfmk-enabled .view_bottom_btnbox button {
+        html.dcui-enabled .view_bottom_btnbox button {
           height: 30px;
-          border: 1px solid var(--dcfmk-color-nav-light);
+          border: 1px solid var(--dcui-color-nav-light);
           border-radius: 0;
-          background: var(--dcfmk-color-nav-light);
-          color: var(--dcfmk-color-on-accent);
+          background: var(--dcui-color-nav-light);
+          color: var(--dcui-color-on-accent);
           line-height: 28px;
         }
-        html.dcfmk-enabled .dcfmk-comments {
+        html.dcui-enabled .dcui-comments {
           margin-top: 28px;
-          border-top: 2px solid var(--dcfmk-color-nav-light);
-          color: var(--dcfmk-color-text);
-          font-family: var(--dcfmk-font);
+          border-top: 2px solid var(--dcui-color-nav-light);
+          color: var(--dcui-color-text);
+          font-family: var(--dcui-font);
         }
-        html.dcfmk-enabled .dcfmk-comments .comment_count {
+        html.dcui-enabled .dcui-comments .comment_count {
           box-sizing: border-box;
           min-height: 42px;
           padding: 10px 12px;
-          border-bottom: 1px solid var(--dcfmk-color-border);
-          background: var(--dcfmk-color-subtle);
+          border-bottom: 1px solid var(--dcui-color-border);
+          background: var(--dcui-color-subtle);
         }
-        html.dcfmk-enabled .dcfmk-comments .comment_count .font_red {
-          color: var(--dcfmk-color-link);
+        html.dcui-enabled .dcui-comments .comment_count .font_red {
+          color: var(--dcui-color-link);
         }
-        html.dcfmk-enabled .dcfmk-comments .comment_box {
-          border-bottom: 1px solid var(--dcfmk-color-border);
+        html.dcui-enabled .dcui-comments .comment_box {
+          border-bottom: 1px solid var(--dcui-color-border);
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_list {
+        html.dcui-enabled .dcui-comments .cmt_list {
           margin: 0;
           padding: 0;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_info {
+        html.dcui-enabled .dcui-comments .cmt_info {
           position: relative;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_info > .addbox {
+        html.dcui-enabled .dcui-comments .cmt_info > .addbox {
           display: flex !important;
           box-sizing: border-box;
           width: 100%;
           min-width: 0;
           padding-right: 140px;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_info > .addbox > .cmt_nickbox {
+        html.dcui-enabled .dcui-comments .cmt_info > .addbox > .cmt_nickbox {
           float: none !important;
           flex: 0 0 152px;
+          min-width: 0;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_info > .addbox > .cmt_txtbox {
+        html.dcui-enabled .dcui-comments .cmt_info > .addbox > .cmt_txtbox {
           float: none !important;
           flex: 1 1 auto;
           width: auto !important;
           max-width: calc(100% - 152px);
           min-width: 0;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_info > .fr {
+        html.dcui-enabled .dcui-comments .cmt_info > .fr {
           position: absolute;
           top: 9px;
           right: 3px;
           float: none !important;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_info > .addbox > .fr {
+        html.dcui-enabled .dcui-comments .cmt_info > .addbox > .fr {
           position: absolute;
           top: 9px;
           right: 3px;
           float: none !important;
         }
-        html.dcfmk-enabled .dcfmk-comments .reply_info {
+        html.dcui-enabled .dcui-comments .reply_info {
           position: relative;
           min-width: 0;
         }
-        html.dcfmk-enabled .dcfmk-comments .reply_info:not(:has(> .addbox)) {
+        html.dcui-enabled .dcui-comments .reply_info:not(:has(> .addbox)) {
           display: flex;
           box-sizing: border-box;
           width: 100%;
           padding-right: 140px;
         }
-        html.dcfmk-enabled .dcfmk-comments .reply_info > .addbox {
+        html.dcui-enabled .dcui-comments .reply_info > .addbox {
           display: flex !important;
           box-sizing: border-box;
           width: 100%;
           min-width: 0;
           padding-right: 140px;
         }
-        html.dcfmk-enabled .dcfmk-comments .reply_info > .cmt_nickbox,
-        html.dcfmk-enabled .dcfmk-comments .reply_info > .addbox > .cmt_nickbox {
+        html.dcui-enabled .dcui-comments .reply_info > .cmt_nickbox,
+        html.dcui-enabled .dcui-comments .reply_info > .addbox > .cmt_nickbox {
           float: none !important;
           flex: 0 0 133px;
+          min-width: 0;
         }
-        html.dcfmk-enabled .dcfmk-comments .reply_info > .cmt_txtbox,
-        html.dcfmk-enabled .dcfmk-comments .reply_info > .usertxt,
-        html.dcfmk-enabled .dcfmk-comments .reply_info > .addbox > .cmt_txtbox,
-        html.dcfmk-enabled .dcfmk-comments .reply_info > .addbox > .usertxt {
+        html.dcui-enabled .dcui-comments .reply_info > .cmt_txtbox,
+        html.dcui-enabled .dcui-comments .reply_info > .usertxt,
+        html.dcui-enabled .dcui-comments .reply_info > .addbox > .cmt_txtbox,
+        html.dcui-enabled .dcui-comments .reply_info > .addbox > .usertxt {
           float: none !important;
           flex: 1 1 auto;
           width: auto !important;
           max-width: calc(100% - 133px);
           min-width: 0;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_info .cmt_txtbox > .usertxt,
-        html.dcfmk-enabled .dcfmk-comments .reply_info .cmt_txtbox > .usertxt {
+        html.dcui-enabled .dcui-comments .cmt_info .cmt_txtbox > .usertxt,
+        html.dcui-enabled .dcui-comments .reply_info .cmt_txtbox > .usertxt {
           box-sizing: border-box;
           width: auto !important;
           max-width: 100%;
           min-width: 0;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_txtbox:has(> .comment_dccon) {
+        html.dcui-enabled .dcui-comments .cmt_txtbox:has(> .comment_dccon) {
           display: inline-flex !important;
           flex: 1 1 auto;
           flex-flow: row nowrap;
@@ -9379,103 +9383,124 @@
           width: auto !important;
           max-width: 100%;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_txtbox:has(> .mention) {
+        html.dcui-enabled .dcui-comments .cmt_txtbox:has(> .mention) {
           flex-wrap: wrap;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_txtbox:has(> .mention) > .mention {
+        html.dcui-enabled .dcui-comments .cmt_txtbox:has(> .mention) > .mention {
           flex: 0 0 100%;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_txtbox > .comment_dccon,
-        html.dcfmk-enabled .dcfmk-comments .reply_info .comment_dccon {
+        html.dcui-enabled .dcui-comments .cmt_txtbox > .comment_dccon,
+        html.dcui-enabled .dcui-comments .reply_info .comment_dccon {
           float: none !important;
           flex: 0 0 auto;
           width: auto !important;
           max-width: none;
         }
-        html.dcfmk-enabled .dcfmk-comments .coment_dccon_info {
+        html.dcui-enabled .dcui-comments .coment_dccon_info {
           box-sizing: border-box;
           width: max-content;
         }
-        html.dcfmk-enabled .dcfmk-comments .coment_dccon_info > .over_alt {
+        html.dcui-enabled .dcui-comments .coment_dccon_info > .over_alt {
           white-space: nowrap;
         }
-        html.dcfmk-enabled .dcfmk-comments .reply_info > .fr {
+        html.dcui-enabled .dcui-comments .reply_info > .fr {
           position: absolute;
           top: 0;
           right: 0;
           float: none !important;
         }
-        html.dcfmk-enabled .dcfmk-comments .reply_info > .addbox > .fr {
+        html.dcui-enabled .dcui-comments .reply_info > .addbox > .fr {
           position: absolute;
           top: 0;
           right: 0;
           float: none !important;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_info {
-          color: var(--dcfmk-color-muted);
+        html.dcui-enabled .dcui-comments .cmt_info {
+          color: var(--dcui-color-muted);
           font-size: 11px;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_nickbox .nickname,
-        html.dcfmk-enabled .dcfmk-comments .cmt_nickbox .nickname em {
-          color: var(--dcfmk-color-text-soft);
+        html.dcui-enabled .dcui-comments .cmt_nickbox .nickname,
+        html.dcui-enabled .dcui-comments .cmt_nickbox .nickname em {
+          color: var(--dcui-color-text-soft);
           font-weight: 700;
         }
-        html.dcfmk-enabled .dcfmk-user-identifier {
+        html.dcui-enabled .dcui-comments .cmt_nickbox:has(> .dcui-user-identifier),
+        html.dcui-enabled .dcui-comments .cmt_nickbox .addbox:has(> .dcui-user-identifier) {
+          display: flex;
+          align-items: center;
+          min-width: 0;
+        }
+        html.dcui-enabled .dcui-comments .cmt_nickbox:has(> .dcui-user-identifier) > .nickname,
+        html.dcui-enabled .dcui-comments .cmt_nickbox .addbox:has(> .dcui-user-identifier) > .nickname {
+          flex: 0 1 auto;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        html.dcui-enabled .dcui-comments .cmt_nickbox .dcui-user-identifier {
+          flex: 0 1 auto;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        html.dcui-enabled .dcui-user-identifier {
           margin-left: 3px;
-          color: var(--dcfmk-color-faint);
+          color: var(--dcui-color-faint);
           font-size: 10px;
           font-weight: 400;
           pointer-events: none;
         }
-        html.dcfmk-enabled table.dcfmk-list-table .dcfmk-user-identifier {
+        html.dcui-enabled table.dcui-list-table .dcui-user-identifier {
           font-size: 9px;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_txtbox {
+        html.dcui-enabled .dcui-comments .cmt_txtbox {
           padding-top: 0;
-          color: var(--dcfmk-color-text-strong);
+          color: var(--dcui-color-text-strong);
           font-size: 13px;
           line-height: 1.6;
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box {
+        html.dcui-enabled .dcui-article-body .btn_recommend_box {
           padding-top: 19px !important;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_write_box {
+        html.dcui-enabled .dcui-comments .cmt_write_box {
           box-sizing: border-box;
           width: 100%;
           margin-top: 12px;
           padding: 12px;
-          border: 1px solid var(--dcfmk-color-border);
-          background: var(--dcfmk-color-subtle);
+          border: 1px solid var(--dcui-color-border);
+          background: var(--dcui-color-subtle);
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_write_box input,
-        html.dcfmk-enabled .dcfmk-comments .cmt_write_box textarea {
-          border: 1px solid var(--dcfmk-color-border-strong);
+        html.dcui-enabled .dcui-comments .cmt_write_box input,
+        html.dcui-enabled .dcui-comments .cmt_write_box textarea {
+          border: 1px solid var(--dcui-color-border-strong);
           border-radius: 0;
-          background: var(--dcfmk-color-surface);
-          color: var(--dcfmk-color-text);
+          background: var(--dcui-color-surface);
+          color: var(--dcui-color-text);
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_write_box textarea {
+        html.dcui-enabled .dcui-comments .cmt_write_box textarea {
           box-sizing: border-box;
           width: 100%;
           min-height: 78px;
           padding: 9px;
           resize: vertical;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_write_box button {
+        html.dcui-enabled .dcui-comments .cmt_write_box button {
           border-radius: 0;
         }
-        html.dcfmk-enabled .dcfmk-comments .btn_cmt_refresh,
-        html.dcfmk-enabled .dcfmk-comments .btn_cmt_close,
-        html.dcfmk-enabled .dcfmk-comments .contgo {
-          color: var(--dcfmk-color-muted);
+        html.dcui-enabled .dcui-comments .btn_cmt_refresh,
+        html.dcui-enabled .dcui-comments .btn_cmt_close,
+        html.dcui-enabled .dcui-comments .contgo {
+          color: var(--dcui-color-muted);
           font-size: 13px;
         }
-        html.dcfmk-enabled .dcfmk-comments .comment_box > .bottom_paging_box {
+        html.dcui-enabled .dcui-comments .comment_box > .bottom_paging_box {
           height: auto !important;
           min-height: 38px !important;
           padding: 6px 0 !important;
         }
-        html.dcfmk-enabled .dcfmk-comments .comment_box > .bottom_paging_box > .cmt_paging {
+        html.dcui-enabled .dcui-comments .comment_box > .bottom_paging_box > .cmt_paging {
           display: flex;
           flex: 0 1 auto;
           height: 26px;
@@ -9483,38 +9508,38 @@
           justify-content: center;
           padding: 0 !important;
         }
-        html.dcfmk-enabled .dcfmk-comments .comment_box > .bottom_paging_box > .cmt_inner {
+        html.dcui-enabled .dcui-comments .comment_box > .bottom_paging_box > .cmt_inner {
           top: 50% !important;
           margin-top: 0 !important;
           transform: translateY(-50%);
         }
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header {
+        html.dcui-enabled .dcui-article .dcui-article-header {
           margin: 0 0 6px;
-          border-top: 1px solid var(--dcfmk-color-border-strong) !important;
-          border-bottom: 1px solid var(--dcfmk-color-border-strong);
+          border-top: 1px solid var(--dcui-color-border-strong) !important;
+          border-bottom: 1px solid var(--dcui-color-border-strong);
         }
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .title {
+        html.dcui-enabled .dcui-article .dcui-article-header .title {
           position: relative;
           box-sizing: border-box;
           min-height: 43px;
           padding: 11px 155px 9px 11px;
-          border-bottom: 1px solid var(--dcfmk-color-border-strong);
-          background: var(--dcfmk-color-surface-muted);
-          color: var(--dcfmk-color-text-strong);
+          border-bottom: 1px solid var(--dcui-color-border-strong);
+          background: var(--dcui-color-surface-muted);
+          color: var(--dcui-color-text-strong);
           font-size: 17px;
           line-height: 18px;
         }
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .dcfmk-article-date {
+        html.dcui-enabled .dcui-article .dcui-article-header .dcui-article-date {
           position: absolute;
           top: 13px;
           right: 11px;
-          color: var(--dcfmk-color-faint);
+          color: var(--dcui-color-faint);
           font-size: 11px;
           font-weight: 400;
           letter-spacing: 0;
           white-space: nowrap;
         }
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .gall_writer {
+        html.dcui-enabled .dcui-article .dcui-article-header .gall_writer {
           display: flex;
           box-sizing: border-box;
           align-items: center;
@@ -9522,26 +9547,26 @@
           min-height: 34px;
           padding: 6px 11px;
           border-top: 0;
-          background: var(--dcfmk-color-surface);
+          background: var(--dcui-color-surface);
           line-height: 19px;
         }
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .dcfmk-original-date,
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .gall_scrap {
+        html.dcui-enabled .dcui-article .dcui-article-header .dcui-original-date,
+        html.dcui-enabled .dcui-article .dcui-article-header .gall_scrap {
           display: none !important;
         }
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .gall_writer > .fl,
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .gall_writer > .fr {
+        html.dcui-enabled .dcui-article .dcui-article-header .gall_writer > .fl,
+        html.dcui-enabled .dcui-article .dcui-article-header .gall_writer > .fr {
           float: none;
           display: flex;
           align-items: center;
           min-height: 22px;
         }
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .gall_writer > .fr {
+        html.dcui-enabled .dcui-article .dcui-article-header .gall_writer > .fr {
           flex-shrink: 0;
           padding: 0;
         }
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .fr > .gall_count,
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .fr > .gall_reply_num {
+        html.dcui-enabled .dcui-article .dcui-article-header .fr > .gall_count,
+        html.dcui-enabled .dcui-article .dcui-article-header .fr > .gall_reply_num {
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -9550,13 +9575,13 @@
           padding: 0 10px 2px;
           line-height: normal;
         }
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .fr > span {
+        html.dcui-enabled .dcui-article .dcui-article-header .fr > span {
           position: relative;
           margin-left: 0;
-          color: var(--dcfmk-color-muted);
+          color: var(--dcui-color-muted);
           font-size: 11px;
         }
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .fr > .gall_comment {
+        html.dcui-enabled .dcui-article .dcui-article-header .fr > .gall_comment {
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -9564,22 +9589,22 @@
           height: 22px;
           padding: 0 0 0 10px;
         }
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .gall_comment a {
+        html.dcui-enabled .dcui-article .dcui-article-header .gall_comment a {
           margin: 0;
         }
-        html.dcfmk-enabled .dcfmk-article .dcfmk-article-header .fr > span::before {
+        html.dcui-enabled .dcui-article .dcui-article-header .fr > span::before {
           position: absolute;
           top: 50%;
           left: 0;
           margin: 0;
           transform: translateY(-50%);
         }
-        html.dcfmk-enabled .dcfmk-article-body > .inner {
+        html.dcui-enabled .dcui-article-body > .inner {
           margin-bottom: 0 !important;
           padding: 0 15px;
         }
-        html.dcfmk-enabled .dcfmk-article-body .writing_view_box,
-        html.dcfmk-enabled .dcfmk-article-body .write_div {
+        html.dcui-enabled .dcui-article-body .writing_view_box,
+        html.dcui-enabled .dcui-article-body .write_div {
           min-height: 0 !important;
           margin-bottom: 0 !important;
           padding-bottom: 0 !important;
@@ -9588,7 +9613,7 @@
         }
         /* 1.9.37의 분할 추천 UI는 원본 디시 컨트롤을 사용하도록 비활성화한다. */
         @media not all {
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box {
+        html.dcui-enabled .dcui-article-body .btn_recommend_box {
           width: 100%;
           min-height: 0 !important;
           height: auto !important;
@@ -9596,15 +9621,15 @@
           margin-bottom: 0 !important;
           padding: 6px 0 2px;
           border: 0;
-          border-top: 1px solid var(--dcfmk-color-border);
+          border-top: 1px solid var(--dcui-color-border);
           background: transparent;
         }
-        html.dcfmk-enabled .dcfmk-article-body .positionr {
+        html.dcui-enabled .dcui-article-body .positionr {
           min-height: 0 !important;
           margin: 0 !important;
           padding: 0 !important;
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box > .inner_box {
+        html.dcui-enabled .dcui-article-body .btn_recommend_box > .inner_box {
           display: flex;
           width: auto;
           height: 34px;
@@ -9613,7 +9638,7 @@
           gap: 8px;
           margin: 0 auto;
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box > .inner_box > .inner {
+        html.dcui-enabled .dcui-article-body .btn_recommend_box > .inner_box > .inner {
           display: grid;
           box-sizing: border-box;
           grid-template-columns: 34px 42px;
@@ -9623,16 +9648,16 @@
           margin: 0;
           padding: 0;
           overflow: hidden;
-          border: 1px solid var(--dcfmk-color-border-strong);
+          border: 1px solid var(--dcui-color-border-strong);
           border-radius: 4px;
-          background: var(--dcfmk-color-surface);
+          background: var(--dcui-color-surface);
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box > .inner_box > .inner:has(.btn_recom_up) {
+        html.dcui-enabled .dcui-article-body .btn_recommend_box > .inner_box > .inner:has(.btn_recom_up) {
           grid-template-columns: 34px 84px;
           width: 118px;
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .btn_recom_up,
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .btn_recom_down {
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .btn_recom_up,
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .btn_recom_down {
           grid-column: 1;
           grid-row: 1;
           box-sizing: border-box;
@@ -9641,51 +9666,51 @@
           height: 34px;
           margin: 0;
           border: 0;
-          border-right: 1px solid var(--dcfmk-color-border-soft);
+          border-right: 1px solid var(--dcui-color-border-soft);
           border-radius: 0;
           padding: 0;
-          background: var(--dcfmk-color-surface-muted);
+          background: var(--dcui-color-surface-muted);
           box-shadow: none;
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .btn_recom_up:hover,
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .btn_recom_down:hover {
-          background: var(--dcfmk-color-surface-selected);
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .btn_recom_up:hover,
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .btn_recom_down:hover {
+          background: var(--dcui-color-surface-selected);
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .btn_recom_up::after,
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .btn_recom_down::after {
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .btn_recom_up::after,
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .btn_recom_down::after {
           content: none;
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .btn_recom_up::before,
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .btn_recom_down::before {
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .btn_recom_up::before,
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .btn_recom_down::before {
           display: block;
           width: 32px;
           height: 32px;
-          color: var(--dcfmk-color-link-secondary);
+          color: var(--dcui-color-link-secondary);
           font-family: Arial, sans-serif;
           font-weight: 700;
           line-height: 32px;
           text-align: center;
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .btn_recom_up::before {
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .btn_recom_up::before {
           content: "☆";
           font-size: 25px;
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .btn_recom_up.on::before {
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .btn_recom_up.on::before {
           content: "★";
           color: #e2a900;
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .btn_recom_down::before {
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .btn_recom_down::before {
           content: "×";
-          color: var(--dcfmk-color-icon);
+          color: var(--dcui-color-icon);
           font-size: 27px;
           font-weight: 400;
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .btn_recom_up em,
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .btn_recom_down em {
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .btn_recom_up em,
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .btn_recom_down em {
           display: none !important;
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .up_num_box,
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .down_num_box {
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .up_num_box,
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .down_num_box {
           grid-column: 2;
           grid-row: 1;
           display: grid;
@@ -9698,17 +9723,17 @@
           padding: 0;
           border: 0;
           border-radius: 0;
-          background: var(--dcfmk-color-surface);
+          background: var(--dcui-color-surface);
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .up_num_box {
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .up_num_box {
           grid-template-columns: 42px 42px;
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .down_num_box {
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .down_num_box {
           grid-template-columns: 42px;
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .up_num_box .up_num,
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .down_num_box .down_num,
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .up_num_box .sup_num {
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .up_num_box .up_num,
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .down_num_box .down_num,
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .up_num_box .sup_num {
           display: flex !important;
           box-sizing: border-box;
           min-width: 0;
@@ -9720,17 +9745,17 @@
           font: 700 12px/32px Tahoma, sans-serif;
           text-align: center;
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .up_num_box .sup_num {
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .up_num_box .sup_num {
           gap: 3px;
-          border-left: 1px solid var(--dcfmk-color-border-soft);
-          color: var(--dcfmk-color-text-soft);
+          border-left: 1px solid var(--dcui-color-border-soft);
+          color: var(--dcui-color-text-soft);
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .up_num_box .sup_num .writer_nikcon {
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .up_num_box .sup_num .writer_nikcon {
           display: inline-flex;
           align-items: center;
           margin: 0;
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .up_num_box .sup_num img {
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .up_num_box .sup_num img {
           display: block;
           width: auto;
           max-width: 13px !important;
@@ -9738,13 +9763,13 @@
           max-height: 13px;
           margin: 0;
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .up_num_box .up_num {
-          color: var(--dcfmk-color-link-bright);
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .up_num_box .up_num {
+          color: var(--dcui-color-link-bright);
         }
-        html.dcfmk-enabled .dcfmk-article-body .btn_recommend_box .down_num_box .down_num {
-          color: var(--dcfmk-color-muted);
+        html.dcui-enabled .dcui-article-body .btn_recommend_box .down_num_box .down_num {
+          color: var(--dcui-color-muted);
         }
-        html.dcfmk-enabled .dcfmk-article-body .recom_bottom_box {
+        html.dcui-enabled .dcui-article-body .recom_bottom_box {
           display: flex;
           align-items: center;
           justify-content: center;
@@ -9755,7 +9780,7 @@
           margin-bottom: 0 !important;
           padding: 0 !important;
         }
-        html.dcfmk-enabled .dcfmk-article-body .recom_bottom_box button {
+        html.dcui-enabled .dcui-article-body .recom_bottom_box button {
           float: none !important;
           min-width: 0;
           height: 22px;
@@ -9765,19 +9790,19 @@
           white-space: nowrap;
         }
         }
-        html.dcfmk-enabled .dcfmk-article-body .positionr {
+        html.dcui-enabled .dcui-article-body .positionr {
           margin-top: 30px !important;
           margin-bottom: 0 !important;
           padding-top: 0 !important;
           padding-bottom: 0 !important;
         }
-        html.dcfmk-enabled .dcfmk-comments {
+        html.dcui-enabled .dcui-comments {
           margin-top: 10px !important;
         }
-        html.dcfmk-enabled .dcfmk-article-body > div:not([class])[style*="width:100%"][style*="text-align:center"] {
+        html.dcui-enabled .dcui-article-body > div:not([class])[style*="width:100%"][style*="text-align:center"] {
           display: none !important;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_write_box {
+        html.dcui-enabled .dcui-comments .cmt_write_box {
           display: grid !important;
           grid-template-columns: minmax(0, 1fr);
           row-gap: 5px;
@@ -9786,7 +9811,7 @@
           margin-top: 8px;
           padding: 8px;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_write_box > .fl {
+        html.dcui-enabled .dcui-comments .cmt_write_box > .fl {
           display: flex;
           float: none !important;
           width: auto !important;
@@ -9796,14 +9821,14 @@
           gap: 5px;
           margin: 0 !important;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_write_box .user_info_input {
+        html.dcui-enabled .dcui-comments .cmt_write_box .user_info_input {
           box-sizing: border-box;
           width: auto !important;
           min-width: 96px;
           margin: 0 !important;
-          border-right: 1px solid var(--dcfmk-color-border-strong) !important;
+          border-right: 1px solid var(--dcui-color-border-strong) !important;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_write_box .user_info_input label {
+        html.dcui-enabled .dcui-comments .cmt_write_box .user_info_input label {
           display: block;
           box-sizing: border-box;
           overflow: hidden;
@@ -9812,30 +9837,30 @@
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_write_box .user_info_input.id > label {
+        html.dcui-enabled .dcui-comments .cmt_write_box .user_info_input.id > label {
           width: 100% !important;
           height: 100%;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_write_box .user_info_input input {
+        html.dcui-enabled .dcui-comments .cmt_write_box .user_info_input input {
           box-sizing: border-box;
           width: 100px !important;
           min-width: 80px;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_write_box > .cmt_txt_cont {
+        html.dcui-enabled .dcui-comments .cmt_write_box > .cmt_txt_cont {
           float: none !important;
           box-sizing: border-box;
           width: auto !important;
           min-width: 0;
           margin: 0 !important;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_write_box .cmt_write {
+        html.dcui-enabled .dcui-comments .cmt_write_box .cmt_write {
           float: none !important;
           box-sizing: border-box;
           width: 100% !important;
           min-width: 0;
           margin: 0 !important;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_write_box .cmt_write textarea {
+        html.dcui-enabled .dcui-comments .cmt_write_box .cmt_write textarea {
           display: block;
           box-sizing: border-box;
           width: 100% !important;
@@ -9845,20 +9870,20 @@
           margin: 0 !important;
           padding: 7px 8px;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_write_box .cmt_textarea_label {
+        html.dcui-enabled .dcui-comments .cmt_write_box .cmt_textarea_label {
           box-sizing: border-box;
           width: 100% !important;
           padding: 7px 8px;
           font-size: 11px;
           line-height: 18px;
         }
-        html.dcfmk-enabled .dcfmk-comments .cmt_write_box .cmt_cont_bottm {
+        html.dcui-enabled .dcui-comments .cmt_write_box .cmt_cont_bottm {
           box-sizing: border-box;
           width: 100% !important;
           min-height: 26px;
           margin-top: 5px;
         }
-        html.dcfmk-enabled .view_bottom_btnbox {
+        html.dcui-enabled .view_bottom_btnbox {
           box-sizing: border-box;
           width: 100%;
           min-height: 27px;
@@ -9867,23 +9892,23 @@
           padding: 0 !important;
           border-top: 0;
         }
-        html.dcfmk-enabled .view_bottom_btnbox > .fl,
-        html.dcfmk-enabled .view_bottom_btnbox > .fr {
+        html.dcui-enabled .view_bottom_btnbox > .fl,
+        html.dcui-enabled .view_bottom_btnbox > .fr {
           display: flex;
           align-items: center;
           gap: 4px;
           height: 27px;
         }
-        html.dcfmk-enabled .view_bottom_btnbox button {
+        html.dcui-enabled .view_bottom_btnbox button {
           box-sizing: border-box;
           min-width: 54px;
           height: 26px;
           padding: 0 10px;
-          border: 1px solid var(--dcfmk-color-border-strong);
+          border: 1px solid var(--dcui-color-border-strong);
           border-radius: 3px;
-          background: linear-gradient(to bottom, var(--dcfmk-color-control-gradient-top) 0, var(--dcfmk-color-control-gradient-bottom) 100%);
-          color: var(--dcfmk-color-text-soft);
-          font-family: var(--dcfmk-font) !important;
+          background: linear-gradient(to bottom, var(--dcui-color-control-gradient-top) 0, var(--dcui-color-control-gradient-bottom) 100%);
+          color: var(--dcui-color-text-soft);
+          font-family: var(--dcui-font) !important;
           font-size: 11px !important;
           font-style: normal;
           line-height: 24px !important;
@@ -9891,32 +9916,32 @@
           white-space: nowrap;
           text-shadow: none;
         }
-        html.dcfmk-enabled .view_bottom_btnbox > .fr .write {
+        html.dcui-enabled .view_bottom_btnbox > .fr .write {
           font-weight: 400 !important;
         }
-        html.dcfmk-enabled .view_bottom_btnbox > .fl .concept.btn_lightpurple {
-          border-color: var(--dcfmk-color-nav-light) !important;
-          background: var(--dcfmk-color-nav-light) !important;
-          color: var(--dcfmk-color-on-accent) !important;
+        html.dcui-enabled .view_bottom_btnbox > .fl .concept.btn_lightpurple {
+          border-color: var(--dcui-color-nav-light) !important;
+          background: var(--dcui-color-nav-light) !important;
+          color: var(--dcui-color-on-accent) !important;
           font-weight: 700 !important;
         }
-        html.dcfmk-enabled .view_bottom_btnbox > .fl .concept.btn_whitepurple {
-          border-color: var(--dcfmk-color-border-strong) !important;
-          background: linear-gradient(to bottom, var(--dcfmk-color-control-gradient-top) 0, var(--dcfmk-color-control-gradient-bottom) 100%) !important;
-          color: var(--dcfmk-color-text-soft) !important;
+        html.dcui-enabled .view_bottom_btnbox > .fl .concept.btn_whitepurple {
+          border-color: var(--dcui-color-border-strong) !important;
+          background: linear-gradient(to bottom, var(--dcui-color-control-gradient-top) 0, var(--dcui-color-control-gradient-bottom) 100%) !important;
+          color: var(--dcui-color-text-soft) !important;
           font-weight: 400 !important;
         }
-        html.dcfmk-enabled.dcfmk-page-view #bottom_listwrap,
-        html.dcfmk-enabled.dcfmk-page-view #bottom_listwrap > .left_content,
-        html.dcfmk-enabled.dcfmk-page-view #bottom_listwrap > .left_content > article,
-        html.dcfmk-enabled.dcfmk-page-view #bottom_listwrap .gall_listwrap {
+        html.dcui-enabled.dcui-page-view #bottom_listwrap,
+        html.dcui-enabled.dcui-page-view #bottom_listwrap > .left_content,
+        html.dcui-enabled.dcui-page-view #bottom_listwrap > .left_content > article,
+        html.dcui-enabled.dcui-page-view #bottom_listwrap .gall_listwrap {
           margin-top: 0 !important;
           padding-top: 0 !important;
         }
-        html.dcfmk-enabled .dcfmk-comments {
+        html.dcui-enabled .dcui-comments {
           border-top: 0;
         }
-        html.dcfmk-enabled .dcfmk-comments .comment_count {
+        html.dcui-enabled .dcui-comments .comment_count {
           display: flex;
           align-items: center;
           justify-content: space-between;
@@ -9925,42 +9950,42 @@
           min-height: 38px;
           height: auto;
           padding: 8px 12px;
-          border: 1px solid var(--dcfmk-color-border) !important;
+          border: 1px solid var(--dcui-color-border) !important;
           border-radius: 4px;
-          background: linear-gradient(to bottom, var(--dcfmk-color-control-gradient-top) 0, var(--dcfmk-color-control-gradient-soft-bottom) 100%);
-          color: var(--dcfmk-color-text-soft);
+          background: linear-gradient(to bottom, var(--dcui-color-control-gradient-top) 0, var(--dcui-color-control-gradient-soft-bottom) 100%);
+          color: var(--dcui-color-text-soft);
           font-size: 13px;
           line-height: 20px;
         }
-        html.dcfmk-enabled .dcfmk-comments .comment_count::after {
+        html.dcui-enabled .dcui-comments .comment_count::after {
           display: none;
         }
-        html.dcfmk-enabled .dcfmk-comments .comment_count > .num_box,
-        html.dcfmk-enabled .dcfmk-comments .comment_count > .fr {
+        html.dcui-enabled .dcui-comments .comment_count > .num_box,
+        html.dcui-enabled .dcui-comments .comment_count > .fr {
           float: none;
           width: auto;
           line-height: 20px;
         }
-        html.dcfmk-enabled .dcfmk-comments .comment_count .comment_sort {
+        html.dcui-enabled .dcui-comments .comment_count .comment_sort {
           display: inline-flex;
           align-items: center;
           vertical-align: middle;
           line-height: 20px;
         }
-        html.dcfmk-enabled .dcfmk-comments .comment_sort .radiobox {
+        html.dcui-enabled .dcui-comments .comment_sort .radiobox {
           display: inline-flex;
           align-items: center;
           height: 20px;
           line-height: 20px;
         }
-        html.dcfmk-enabled .dcfmk-comments .comment_sort .checkmark {
+        html.dcui-enabled .dcui-comments .comment_sort .checkmark {
           top: 50%;
           transform: translateY(-50%);
         }
-        html.dcfmk-enabled .dcfmk-comments .comment_box {
+        html.dcui-enabled .dcui-comments .comment_box {
           border-top: 0 !important;
         }
-        html.dcfmk-enabled .dcfmk-comments .nomem_comment_info {
+        html.dcui-enabled .dcui-comments .nomem_comment_info {
           display: block !important;
           float: none !important;
           clear: both;
@@ -9970,7 +9995,7 @@
           margin-left: 0 !important;
           text-align: center !important;
         }
-        html.dcfmk-enabled .dcfmk-comments .repley_add_vote {
+        html.dcui-enabled .dcui-comments .repley_add_vote {
           display: none !important;
         }
       `;
@@ -9978,10 +10003,761 @@
     },
   });
 
+  const SelectionSearchController = Object.freeze({
+    mount(context) {
+      if (document.getElementById("dcui-selection-search")) return;
+      const menu = document.createElement("div");
+      menu.id = "dcui-selection-search";
+      menu.setAttribute("role", "group");
+      menu.setAttribute("aria-label", "선택한 글자 검색");
+      menu.hidden = true;
+      const galleryLink = document.createElement("a");
+      galleryLink.id = "dcui-selection-gallery-search";
+      galleryLink.textContent = "갤러리 검색";
+      galleryLink.setAttribute("aria-label", "선택한 글자를 현재 갤러리에서 검색");
+      menu.append(galleryLink);
+      document.body.appendChild(menu);
+
+      const style = document.createElement("style");
+      style.id = "dcui-selection-search-style";
+      style.textContent = `
+        #dcui-selection-search[hidden] { display: none !important; }
+        html:not(.dcui-enabled) #dcui-selection-search { display: none !important; }
+        html.dcui-enabled #dcui-selection-search {
+          position: fixed;
+          z-index: 2147483646;
+          display: flex;
+          flex-direction: column;
+          box-sizing: border-box;
+          border: 1px solid var(--dcui-color-border-strong);
+          border-radius: 4px;
+          background: var(--dcui-color-surface);
+          color: var(--dcui-color-text-strong);
+          box-shadow: 0 2px 9px rgba(0, 0, 0, .18);
+          font: 12px/18px Arial, sans-serif;
+          overflow: hidden;
+        }
+        html.dcui-enabled #dcui-selection-search a {
+          display: block;
+          padding: 5px 9px;
+          color: inherit;
+          text-decoration: none;
+          white-space: nowrap;
+          cursor: pointer;
+        }
+        html.dcui-enabled #dcui-selection-search a:hover,
+        html.dcui-enabled #dcui-selection-search a:focus-visible {
+          color: var(--dcui-color-accent);
+          background: var(--dcui-color-surface-hover);
+        }
+      `;
+      document.documentElement.appendChild(style);
+
+      const hide = () => { menu.hidden = true; };
+      const update = () => {
+        hide();
+        if (!document.documentElement.classList.contains("dcui-enabled")) return;
+        const selection = window.getSelection();
+        if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
+        const keyword = selection.toString().replace(/\s+/g, " ").trim();
+        if (!keyword || keyword.length > 100) return;
+        const range = selection.getRangeAt(0);
+        const parent = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+          ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
+        if (!parent?.isConnected || !document.body.contains(parent)
+          || parent.closest("input, textarea, select, [contenteditable], #dcui-selection-search")) return;
+        const rect = range.getBoundingClientRect();
+        if (!rect.width && !rect.height) return;
+
+        const galleryUrl = new URL(context.urls.list);
+        galleryUrl.searchParams.set("s_type", "search_subject_memo");
+        galleryUrl.searchParams.set("s_keyword", keyword);
+        galleryLink.href = galleryUrl.href;
+        menu.hidden = false;
+        const bounds = menu.getBoundingClientRect();
+        menu.style.left = `${Math.max(8, Math.min(rect.right + 6, innerWidth - bounds.width - 8))}px`;
+        menu.style.top = `${Math.max(8, Math.min(rect.bottom + 6, innerHeight - bounds.height - 8))}px`;
+      };
+      document.addEventListener("mouseup", (event) => {
+        if (event.button === 0) requestAnimationFrame(update);
+      });
+      document.addEventListener("keyup", (event) => {
+        if (event.key.startsWith("Arrow") || event.key === "Shift") requestAnimationFrame(update);
+      });
+      document.addEventListener("mousedown", (event) => {
+        if (!menu.contains(event.target)) hide();
+      });
+      document.addEventListener("contextmenu", hide);
+      window.addEventListener("scroll", hide, true);
+      window.addEventListener("resize", hide);
+    },
+  });
+
+  const IdentifierSearchController = Object.freeze({
+    mount(context) {
+      if (document.getElementById("dcui-identifier-search-style")) return;
+      const listUrl = new URL(context.urls.list);
+      const galleryId = listUrl.searchParams.get("id");
+      if (!galleryId) return;
+      const galleryPath = listUrl.pathname;
+      const historyIndexKey = "dcui:writer-search-index-v1";
+      const identityLabel = (name, value) => name && name !== value ? `${name} (${value})` : value;
+      const searchKey = (identity) => `dcui:writer-search-v1:${JSON.stringify([
+        galleryPath, galleryId, identity.kind, identity.value,
+      ])}`;
+      const readIndex = () => {
+        const index = GM_getValue(historyIndexKey, []);
+        return Array.isArray(index) ? index.filter((entry) => entry && typeof entry.key === "string") : [];
+      };
+      const galleryHistory = () => readIndex().filter((entry) =>
+        entry.path === galleryPath && entry.galleryId === galleryId);
+      const readSearch = (identity) => {
+        const saved = GM_getValue(searchKey(identity), null);
+        return saved && Number.isSafeInteger(saved.nextPage) && saved.nextPage >= 1
+          && Array.isArray(saved.posts) ? saved : null;
+      };
+      let historyButton = null;
+      const syncHistoryCard = () => {
+        if (!historyButton) return;
+        renderHistory();
+      };
+      const saveSearch = (identity, session) => {
+        const key = searchKey(identity);
+        GM_setValue(key, { nextPage: session.nextPage, exhausted: session.exhausted,
+          newestPostNo: session.newestPostNo, refreshState: session.refreshState, posts: session.posts });
+        const index = readIndex();
+        const entries = [{ key, path: galleryPath, galleryId, kind: identity.kind,
+          value: identity.value, name: identity.name, count: session.posts.length,
+          lastPage: session.nextPage - 1, updatedAt: Date.now() },
+          ...index.filter((entry) => entry.key !== key)];
+        for (const old of entries.slice(50)) GM_deleteValue(old.key);
+        GM_setValue(historyIndexKey, entries.slice(0, 50));
+        syncHistoryCard();
+      };
+      const style = document.createElement("style");
+      style.id = "dcui-identifier-search-style";
+      style.textContent = `
+        html:not(.dcui-enabled) #dcui-identifier-search { display: none !important; }
+        html.dcui-enabled .dcui-user-identifier[role="button"] { cursor: pointer; pointer-events: auto; }
+        html.dcui-enabled .dcui-user-identifier[role="button"]:hover,
+        html.dcui-enabled .dcui-user-identifier[role="button"]:focus-visible { text-decoration: underline; }
+        html.dcui-enabled .dcui-identifier-menu-item .dcui-user-identifier { display: none !important; }
+        #dcui-identifier-search { position: fixed; z-index: 2147483645; inset: 0; display: grid;
+          place-items: center; padding: 16px; box-sizing: border-box; background: rgba(0,0,0,.42); }
+        #dcui-identifier-search .dcui-identifier-panel { box-sizing: border-box; width: min(560px, 100%);
+          max-height: min(680px, 100%); display: flex; flex-direction: column; overflow: hidden;
+          border: 1px solid var(--dcui-color-border-strong); border-radius: 8px;
+          background: var(--dcui-color-surface); color: var(--dcui-color-text-strong);
+          box-shadow: 0 12px 36px rgba(0,0,0,.25); font: 13px/1.45 Arial, sans-serif; }
+        #dcui-identifier-search .dcui-identifier-head { display: flex; align-items: center;
+          justify-content: space-between; min-height: 54px; padding: 0 16px 0 20px;
+          border-bottom: 1px solid var(--dcui-color-border-soft); }
+        #dcui-identifier-search .dcui-identifier-heading { display: flex; align-items: baseline;
+          gap: 8px; min-width: 0; }
+        #dcui-identifier-search h2 { flex: none; margin: 0; font-size: 16px; font-weight: 700; }
+        #dcui-identifier-search .dcui-identifier-target { min-width: 0; overflow: hidden;
+          text-overflow: ellipsis; white-space: nowrap; color: var(--dcui-color-muted); font-size: 12px; }
+        #dcui-identifier-search .dcui-identifier-close { width: 32px; height: 32px; padding: 0;
+          border: 0; border-radius: 4px; background: transparent; color: var(--dcui-color-text-soft);
+          font: 22px/32px Arial, sans-serif; cursor: pointer; }
+        #dcui-identifier-search .dcui-identifier-close:hover,
+        #dcui-identifier-search .dcui-identifier-close:focus-visible { background: var(--dcui-color-surface-hover);
+          color: var(--dcui-color-text-strong); }
+        #dcui-identifier-search .dcui-identifier-filter { display: block; flex: none;
+          padding: 10px 20px; border-bottom: 1px solid var(--dcui-color-border-soft); }
+        #dcui-identifier-search .dcui-identifier-filter input { box-sizing: border-box; width: 100%; height: 32px;
+          padding: 0 10px; border: 1px solid var(--dcui-color-border-strong); border-radius: 4px;
+          background: var(--dcui-color-surface); color: var(--dcui-color-text-strong);
+          font: 12px var(--dcui-font); }
+        #dcui-identifier-search .dcui-identifier-filter input::placeholder { color: var(--dcui-color-muted); }
+        #dcui-identifier-search .dcui-identifier-filter input:focus-visible { outline: 2px solid var(--dcui-color-accent); outline-offset: 1px; }
+        #dcui-identifier-search .dcui-identifier-results { overflow: auto; min-height: 0;
+          max-height: 520px; margin: 0; padding: 0; list-style: none; }
+        #dcui-identifier-search .dcui-identifier-results li { display: flex; flex-direction: column;
+          gap: 3px; min-height: 48px; padding: 7px 20px; box-sizing: border-box;
+          border-bottom: 1px solid var(--dcui-color-border-soft); }
+        #dcui-identifier-search .dcui-identifier-results li[hidden] { display: none !important; }
+        #dcui-identifier-search .dcui-identifier-results li:hover { background: var(--dcui-color-surface-hover); }
+        #dcui-identifier-search .dcui-identifier-main,
+        #dcui-identifier-search .dcui-identifier-meta { display: flex; align-items: center;
+          width: 100%; min-width: 0; gap: 7px; }
+        #dcui-identifier-search .dcui-identifier-main { gap: 3px; }
+        #dcui-identifier-search .dcui-identifier-results a { flex: 0 1 auto; min-width: 0; overflow: hidden;
+          text-overflow: ellipsis; white-space: nowrap; color: var(--dcui-color-text-strong); text-decoration: none; }
+        #dcui-identifier-search .dcui-identifier-results a:hover { color: var(--dcui-color-accent); }
+        #dcui-identifier-search .dcui-identifier-results .icon_img { flex: none; vertical-align: -2px; }
+        #dcui-identifier-search .dcui-identifier-replies { flex: none; color: var(--dcui-color-accent);
+          font-size: 11px; }
+        #dcui-identifier-search .dcui-identifier-meta small { min-width: 0; overflow: hidden;
+          text-overflow: ellipsis; white-space: nowrap; color: var(--dcui-color-muted); font-size: 11px; }
+        #dcui-identifier-search .dcui-identifier-stats { margin-left: auto; flex: none;
+          color: var(--dcui-color-muted); font-size: 11px; }
+        #dcui-identifier-search .dcui-identifier-empty { display: grid; place-items: center;
+          min-height: 124px; padding: 16px; color: var(--dcui-color-muted); }
+        #dcui-identifier-search .dcui-identifier-empty[hidden] { display: none !important; }
+        #dcui-identifier-search .dcui-identifier-foot { display: flex; align-items: center;
+          justify-content: space-between; gap: 12px; min-height: 40px; padding: 0 20px;
+          color: var(--dcui-color-muted); font-size: 11px; }
+        #dcui-identifier-search .dcui-identifier-count { color: var(--dcui-color-text-strong); font-size: 12px; }
+        #dcui-identifier-search .dcui-identifier-actions { display: flex; gap: 8px; padding: 0 20px 12px; }
+        #dcui-identifier-search .dcui-identifier-actions button { padding: 8px 12px;
+          border: 1px solid var(--dcui-color-border-strong); border-radius: 4px;
+          background: var(--dcui-color-surface); color: var(--dcui-color-text-strong); cursor: pointer; }
+        #dcui-identifier-search .dcui-identifier-actions button:hover { background: var(--dcui-color-surface-hover); }
+        #dcui-identifier-search .dcui-identifier-actions button[hidden] { display: none !important; }
+        #dcui-identifier-search .dcui-identifier-actions button:disabled { cursor: default; opacity: .5; }
+        #dcui-identifier-search .dcui-identifier-stop { margin-left: auto; }
+        #dcui-identifier-search .dcui-identifier-progress { height: 3px; background: var(--dcui-color-border-soft); }
+        #dcui-identifier-search .dcui-identifier-progress > span { display: block; height: 100%; width: 0;
+          background: var(--dcui-color-accent); transition: width .2s ease; }
+        html.dcui-enabled #dcui-sidebar .dcui-side-card.dcui-gallery-settings:has(+ .dcui-search-history-card) {
+          margin-bottom: 0; border-bottom: 0; }
+        #dcui-sidebar .dcui-search-history-collapsed > .dcui-side-title { border-bottom: 0; }
+        #dcui-sidebar .dcui-search-history-body[hidden] { display: none !important; }
+        #dcui-sidebar .dcui-author-search-form { display: flex; gap: 5px; margin: 0; padding: 8px;
+          border-bottom: 1px solid var(--dcui-color-border); }
+        #dcui-sidebar .dcui-author-search-form input { flex: 1; min-width: 0; height: 28px;
+          padding: 0 6px; border: 1px solid var(--dcui-color-border-strong);
+          background: var(--dcui-color-surface); color: var(--dcui-color-text-strong);
+          font: 11px var(--dcui-font); }
+        #dcui-sidebar .dcui-author-search-form input::placeholder { color: var(--dcui-color-muted); }
+        #dcui-sidebar .dcui-author-search-form button { flex: none; height: 28px; padding: 0 8px;
+          border: 1px solid var(--dcui-color-border-strong); background: var(--dcui-color-surface-muted);
+          color: var(--dcui-color-text-strong); font: 11px var(--dcui-font); cursor: pointer; }
+        #dcui-sidebar .dcui-author-search-form button:hover { color: var(--dcui-color-link); }
+        #dcui-sidebar .dcui-author-search-form:has(+ .dcui-history-list[hidden]) { border-bottom: 0; }
+        #dcui-sidebar .dcui-history-list[hidden] { display: none !important; }
+        #dcui-sidebar .dcui-history-list { max-height: 360px; overflow-y: auto;
+          margin: 0; padding: 0; list-style: none; }
+        #dcui-sidebar .dcui-history-list li { display: flex; align-items: center;
+          min-height: 48px; padding: 0 5px 0 9px; border-bottom: 1px solid var(--dcui-color-border); }
+        #dcui-sidebar .dcui-history-list li:last-child { border-bottom: 0; }
+        #dcui-sidebar .dcui-history-entry { display: flex; flex: 1; flex-direction: column;
+          min-width: 0; padding: 8px 0; border: 0; background: transparent;
+          color: var(--dcui-color-text-soft); font: 11px/1.4 var(--dcui-font);
+          text-align: left; cursor: pointer; }
+        #dcui-sidebar .dcui-history-entry strong,
+        #dcui-sidebar .dcui-history-entry small { display: block; overflow: hidden;
+          text-overflow: ellipsis; white-space: nowrap; }
+        #dcui-sidebar .dcui-history-entry small { color: var(--dcui-color-muted); font-size: 10px; }
+        #dcui-sidebar .dcui-history-delete { flex: none; width: 24px; height: 30px; padding: 0; border: 0;
+          background: transparent; color: var(--dcui-color-muted); cursor: pointer; }
+        #dcui-sidebar .dcui-history-list li:hover { background: var(--dcui-color-surface-muted); }
+        #dcui-sidebar .dcui-history-entry:hover,
+        #dcui-sidebar .dcui-history-delete:hover { color: var(--dcui-color-link); }
+      `;
+      document.documentElement.appendChild(style);
+
+      let active = null;
+      const runningSearches = new Map();
+      const close = () => {
+        if (!active) return;
+        if (!active.running) active.controller.abort();
+        active.root.remove();
+        active = null;
+      };
+      const renderHistory = () => {
+        const list = historyButton?.closest(".dcui-search-history-card")?.querySelector(".dcui-history-list");
+        if (!list) return;
+        list.replaceChildren();
+        const entries = galleryHistory();
+        list.hidden = !entries.length;
+        for (const entry of entries) {
+          const item = document.createElement("li");
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "dcui-history-entry";
+          const title = document.createElement("strong");
+          title.textContent = identityLabel(entry.name, entry.value);
+          const detail = document.createElement("small");
+          detail.textContent = `${entry.kind === "ip" ? "IP" : "식별코드"} · ${entry.lastPage || 0}페이지 · ${entry.count || 0}건`;
+          button.append(title, detail);
+          button.addEventListener("click", () => open({ kind: entry.kind, value: entry.value,
+            name: entry.name || entry.value }));
+          const remove = document.createElement("button");
+          remove.type = "button";
+          remove.className = "dcui-history-delete";
+          remove.textContent = "×";
+          remove.setAttribute("aria-label", `${entry.name || entry.value} 검색 기록 삭제`);
+          remove.addEventListener("click", () => {
+            GM_deleteValue(entry.key);
+            GM_setValue(historyIndexKey, readIndex().filter((stored) => stored.key !== entry.key));
+            syncHistoryCard();
+          });
+          item.append(button, remove);
+          list.appendChild(item);
+        }
+      };
+      const open = (identity, refreshRequested = false) => {
+        close();
+        const running = runningSearches.get(searchKey(identity));
+        if (running) {
+          active = running;
+          document.body.appendChild(running.root);
+          running.root.querySelector(".dcui-identifier-close").focus();
+          return;
+        }
+        const saved = readSearch(identity);
+        const root = document.createElement("div");
+        root.id = "dcui-identifier-search";
+        root.innerHTML = `<section class="dcui-identifier-panel" role="dialog" aria-modal="true" aria-labelledby="dcui-identifier-title">
+          <div class="dcui-identifier-head"><div class="dcui-identifier-heading"><h2 id="dcui-identifier-title">식별코드 검색</h2><span class="dcui-identifier-target"></span></div><button type="button" class="dcui-identifier-close" aria-label="닫기">×</button></div>
+          <label class="dcui-identifier-filter"><input type="search" aria-label="찾은 글 제목 검색" placeholder="찾은 글 제목 검색" autocomplete="off"></label>
+          <ol class="dcui-identifier-results"></ol><div class="dcui-identifier-empty">검색 중…</div>
+          <div class="dcui-identifier-foot"><span class="dcui-identifier-status" role="status">0 / 200페이지</span>
+            <strong class="dcui-identifier-count">0건</strong></div>
+          <div class="dcui-identifier-actions"><button type="button" class="dcui-identifier-refresh" hidden>새 글 확인</button>
+            <button type="button" class="dcui-identifier-more" hidden>더 검색하기</button>
+            <button type="button" class="dcui-identifier-stop" hidden>중단</button></div>
+          <div class="dcui-identifier-progress" aria-hidden="true"><span></span></div>
+        </section>`;
+        root.querySelector("#dcui-identifier-title").textContent = identity.kind === "ip" ? "IP 검색" : "식별코드 검색";
+        root.querySelector(".dcui-identifier-target").textContent = identityLabel(identity.name, identity.value);
+        const status = root.querySelector(".dcui-identifier-status");
+        const results = root.querySelector(".dcui-identifier-results");
+        const titleFilter = root.querySelector(".dcui-identifier-filter input");
+        const empty = root.querySelector(".dcui-identifier-empty");
+        const count = root.querySelector(".dcui-identifier-count");
+        const progress = root.querySelector(".dcui-identifier-progress > span");
+        const refreshButton = root.querySelector(".dcui-identifier-refresh");
+        const more = root.querySelector(".dcui-identifier-more");
+        const stopButton = root.querySelector(".dcui-identifier-stop");
+        const session = { root, controller: new AbortController(), nextPage: saved?.nextPage || 1,
+          found: new Set(), posts: [], exhausted: saved?.exhausted === true, running: false,
+          newestPostNo: Number(saved?.newestPostNo) || 0,
+          refreshState: saved?.refreshState?.page >= 1 ? saved.refreshState : null };
+        active = session;
+        const applyTitleFilter = () => {
+          const query = titleFilter.value.trim().toLocaleLowerCase();
+          let shown = 0;
+          for (const item of results.children) {
+            const matches = !query || item.querySelector("a")?.textContent.toLocaleLowerCase().includes(query);
+            item.hidden = !matches;
+            if (matches) shown++;
+          }
+          count.textContent = query ? `${shown} / ${session.found.size}건` : `${session.found.size}건`;
+          if (query) {
+            empty.hidden = shown > 0;
+            if (!shown) empty.textContent = "제목 검색 결과 없음";
+          } else {
+            empty.hidden = session.found.size > 0;
+            if (!session.found.size) empty.textContent = session.running ? "검색 중…" : "검색 결과 없음";
+          }
+        };
+        titleFilter.addEventListener("input", applyTitleFilter);
+        const addPost = (post) => {
+          if (!post || typeof post.no !== "string" || !/^\d+$/.test(post.no)
+            || typeof post.href !== "string") return;
+          if (identity.kind === "uid" && post.name && (!identity.name || identity.name === identity.value)) {
+            identity.name = post.name;
+            root.querySelector(".dcui-identifier-target").textContent = identityLabel(identity.name, identity.value);
+          }
+          let href;
+          try { href = new URL(post.href, listUrl); } catch { return; }
+          if (href.origin !== listUrl.origin || href.searchParams.get("id") !== galleryId
+            || !href.pathname.includes("/board/view")) return;
+          const icons = Array.isArray(post.icons) ? post.icons.filter((icon) => /^icon_[a-z0-9_]+$/.test(icon)) : [];
+          if (post.concept && !icons.some((icon) => icon.startsWith("icon_recom"))) icons.unshift("icon_recomtxt");
+          const normalized = { no: post.no, href: href.href, title: post.title || `게시글 ${post.no}`,
+            date: post.date || "", name: post.name || "", icons,
+            views: post.views || "0", recommendations: post.recommendations || "0",
+            replies: Number(post.replies) || 0, concept: post.concept === true };
+          const existingIndex = session.posts.findIndex((entry) => entry.no === post.no);
+          if (existingIndex < 0) {
+            session.found.add(post.no);
+            session.posts.push(normalized);
+          } else {
+            session.posts[existingIndex] = normalized;
+          }
+          const item = [...results.children].find((entry) => entry.dataset.no === post.no)
+            || document.createElement("li");
+          item.dataset.no = post.no;
+          item.replaceChildren();
+          const main = document.createElement("div");
+          main.className = "dcui-identifier-main gall_tit";
+          const link = document.createElement("a");
+          link.href = href.href;
+          for (const icon of icons) {
+            const marker = document.createElement("em");
+            marker.className = `icon_img ${icon}${icon.startsWith("icon_recom") ? " dcui-identifier-concept" : ""}`;
+            if (icon.startsWith("icon_recom")) marker.setAttribute("aria-label", "념글");
+            link.appendChild(marker);
+          }
+          link.appendChild(document.createTextNode(post.title || `게시글 ${post.no}`));
+          main.appendChild(link);
+          if (post.replies > 0) {
+            const replies = document.createElement("span");
+            replies.className = "dcui-identifier-replies";
+            replies.textContent = `[${post.replies}]`;
+            replies.setAttribute("aria-label", `댓글 ${post.replies}개`);
+            main.appendChild(replies);
+          }
+          const meta = document.createElement("div");
+          meta.className = "dcui-identifier-meta";
+          if (post.name) {
+            const name = document.createElement("small");
+            name.textContent = post.name;
+            meta.appendChild(name);
+          }
+          const date = document.createElement("small");
+          date.textContent = post.date || "";
+          meta.appendChild(date);
+          const stats = document.createElement("span");
+          stats.className = "dcui-identifier-stats";
+          stats.textContent = `조회 ${normalized.views} · 추천 ${normalized.recommendations}`;
+          meta.appendChild(stats);
+          item.append(main, meta);
+          if (!item.isConnected) results.appendChild(item);
+          applyTitleFilter();
+        };
+        for (const post of saved?.posts || []) addPost(post);
+        if (saved) {
+          refreshButton.hidden = false;
+          const lastPage = session.nextPage - 1;
+          const limit = Math.ceil(Math.max(1, lastPage) / 200) * 200;
+          status.textContent = session.refreshState
+            ? `새 글 확인 ${session.refreshState.page - 1}페이지까지 · 계속 확인 필요`
+            : session.exhausted || lastPage === limit
+              ? `${lastPage}페이지 확인 완료` : `${lastPage} / ${limit}페이지`;
+          progress.style.width = `${lastPage ? ((lastPage - 1) % 200 + 1) / 2 : 0}%`;
+          if (!session.found.size && !titleFilter.value.trim()) empty.textContent = "검색 결과 없음";
+          more.textContent = lastPage === limit ? "더 검색하기" : "이어서 검색";
+          more.hidden = session.exhausted || Boolean(session.refreshState);
+          if (session.refreshState) refreshButton.textContent = "계속 확인";
+        }
+        const fetchBatch = (pages, runSignal) => AutomatedRequestCoordinator.run(async (signal) => {
+          if (session.controller.signal.aborted || runSignal.aborted)
+            throw new DOMException("검색이 중단되었습니다.", "AbortError");
+          const request = new AbortController();
+          const abort = () => request.abort();
+          signal.addEventListener("abort", abort, { once: true });
+          session.controller.signal.addEventListener("abort", abort, { once: true });
+          runSignal.addEventListener("abort", abort, { once: true });
+          const requests = pages.map(async (page) => {
+            const url = new URL(listUrl.pathname, listUrl.origin);
+            url.searchParams.set("id", galleryId);
+            url.searchParams.set("list_num", "100");
+            url.searchParams.set("page", String(page));
+            const response = await fetch(url.href, { credentials: "same-origin", signal: request.signal });
+            if (!response.ok) throw new Error(`목록 응답 ${response.status}`);
+            const html = AutomatedRequestCoordinator.requireNonEmpty(await response.text());
+            return { page, url, html };
+          });
+          try {
+            return await Promise.all(requests);
+          } catch (error) {
+            request.abort();
+            await Promise.allSettled(requests);
+            throw error;
+          } finally {
+            signal.removeEventListener("abort", abort);
+            session.controller.signal.removeEventListener("abort", abort);
+            runSignal.removeEventListener("abort", abort);
+          }
+        }, { automatedGapMs: 200, navigationGapMs: 0 });
+        const parsePost = (row, url) => {
+          const writer = row.querySelector(".gall_writer.ub-writer");
+          if (identity.kind === "uid"
+            ? writer?.dataset.uid?.trim() !== identity.value
+            : writer?.dataset.uid?.trim() || writer?.dataset.ip?.trim() !== identity.value) return null;
+          const no = row.dataset.no;
+          const titleLink = row.querySelector(".gall_tit a[href*='/board/view']");
+          if (!no || !titleLink) return null;
+          const postUrl = new URL(titleLink.getAttribute("href"), url);
+          if (postUrl.origin !== listUrl.origin || postUrl.searchParams.get("id") !== galleryId) return null;
+          const replies = Number(row.querySelector(".gall_tit .reply_num")?.textContent.replace(/[^\d]/g, "")) || 0;
+          const concept = row.dataset.type?.startsWith("icon_recom")
+            || Boolean(row.querySelector(".gall_tit .icon_img[class*='icon_recom']"));
+          const icons = [...titleLink.querySelectorAll(".icon_img")]
+            .flatMap((icon) => [...icon.classList].filter((name) => /^icon_[a-z0-9_]+$/.test(name) && name !== "icon_img"));
+          if (!icons.length && /^icon_[a-z0-9_]+$/.test(row.dataset.type || "")) icons.push(row.dataset.type);
+          return { no, href: postUrl.href, title: titleLink.textContent.trim(),
+            name: writer?.dataset.nick?.trim() || "",
+            date: row.querySelector(".gall_date")?.getAttribute("title") || "", replies, concept, icons,
+            views: row.querySelector(".gall_count")?.textContent.trim() || "0",
+            recommendations: row.querySelector(".gall_recommend")?.textContent.trim() || "0" };
+        };
+        const persist = () => {
+          try { saveSearch(identity, session); } catch (error) {
+            console.warn("[DC UI] 작성자 검색 기록 저장 실패:", error);
+          }
+        };
+        const sortPosts = () => {
+          session.posts.sort((a, b) => Number(b.no) - Number(a.no));
+          results.replaceChildren(...[...results.children].sort((a, b) => Number(b.dataset.no) - Number(a.dataset.no)));
+        };
+        const ordinaryPostNumbers = (rows) => rows
+          .filter((row) => !row.dataset.type?.startsWith("icon_notice"))
+          .map((row) => Number(row.dataset.no))
+          .filter((no) => Number.isSafeInteger(no) && no > 0);
+        const refresh = async () => {
+          if (session.running || session.controller.signal.aborted) return;
+          AutomatedRequestCoordinator.resetLifecycle();
+          session.running = true;
+          runningSearches.set(searchKey(identity), session);
+          const runController = new AbortController();
+          session.runController = runController;
+          stopButton.hidden = false;
+          stopButton.disabled = false;
+          refreshButton.disabled = true;
+          more.hidden = true;
+          const savedPostNo = session.posts.reduce((max, post) => Math.max(max, Number(post.no) || 0), 0);
+          const state = session.refreshState || { page: 1,
+            boundaryNo: session.newestPostNo || savedPostNo, newestNo: 0 };
+          session.refreshState = state;
+          const limit = state.boundaryNo ? Infinity : state.page + 199;
+          let failed = false;
+          let completed = false;
+          let checked = state.page - 1;
+          try {
+            for (let page = state.page; page <= limit; page += 5) {
+              if (session.controller.signal.aborted) return;
+              if (runController.signal.aborted) throw new DOMException("검색이 중단되었습니다.", "AbortError");
+              const pages = Array.from({ length: Math.min(5, limit + 1 - page) }, (_, index) => page + index);
+              status.textContent = `새 글 확인 ${pages[0]}–${pages.at(-1)}페이지`;
+              const batch = await fetchBatch(pages, runController.signal);
+              if (session.controller.signal.aborted) return;
+              if (runController.signal.aborted) throw new DOMException("검색이 중단되었습니다.", "AbortError");
+              let overlap = false;
+              let reachedEnd = false;
+              for (const { page: batchPage, url, html } of batch) {
+                const doc = new DOMParser().parseFromString(html, "text/html");
+                if (!doc.querySelector(".gall_listwrap")) throw new Error("갤러리 목록을 확인할 수 없습니다.");
+                const rows = [...doc.querySelectorAll("tr.ub-content[data-no]")];
+                if (!rows.length) { reachedEnd = true; break; }
+                const postNumbers = ordinaryPostNumbers(rows);
+                if (batchPage === 1 && postNumbers.length) state.newestNo = Math.max(...postNumbers);
+                if (state.boundaryNo && postNumbers.some((no) => no <= state.boundaryNo)) overlap = true;
+                for (const row of rows) {
+                  const post = parsePost(row, url);
+                  if (!post) continue;
+                  addPost(post);
+                }
+                checked = batchPage;
+              }
+              state.page = checked + 1;
+              sortPosts();
+              persist();
+              if (overlap || reachedEnd) {
+                completed = true;
+                session.newestPostNo = state.newestNo || session.newestPostNo;
+                session.refreshState = null;
+                persist();
+                break;
+              }
+              if (page + 5 <= limit) await AutomatedRequestCoordinator.wait(200, runController.signal);
+            }
+          } catch (error) {
+            if (session.controller.signal.aborted) return;
+            failed = true;
+            status.textContent = runController.signal.aborted ? `새 글 확인 중단 · ${checked}페이지 확인`
+              : error instanceof EmptyAutomatedResponseError ? "빈 응답 · 검색 중단"
+                : `검색 중단 · ${error.name === "AbortError" ? "요청 취소" : error.message}`;
+          } finally {
+            session.running = false;
+            if (runningSearches.get(searchKey(identity)) === session) runningSearches.delete(searchKey(identity));
+            if (session.runController === runController) session.runController = null;
+            if (active === session) {
+              stopButton.hidden = true;
+              refreshButton.disabled = false;
+              more.hidden = session.exhausted || Boolean(session.refreshState);
+              refreshButton.textContent = session.refreshState ? "계속 확인" : "새 글 확인";
+              if (!failed) status.textContent = completed
+                ? `새 글 확인 완료 · ${checked}페이지 확인`
+                : `새 글 확인 ${checked}페이지까지 · 계속 확인 필요`;
+              if (!session.found.size && !titleFilter.value.trim()) empty.textContent = "검색 결과 없음";
+            }
+          }
+        };
+        const scan = async () => {
+          if (session.running || session.exhausted || session.controller.signal.aborted) return;
+          AutomatedRequestCoordinator.resetLifecycle();
+          session.running = true;
+          runningSearches.set(searchKey(identity), session);
+          const runController = new AbortController();
+          session.runController = runController;
+          stopButton.hidden = false;
+          stopButton.disabled = false;
+          more.hidden = true;
+          const limit = Math.ceil(session.nextPage / 200) * 200;
+          let failed = false;
+          let reachedEnd = false;
+          try {
+            while (session.nextPage <= limit) {
+              if (session.controller.signal.aborted) return;
+              if (runController.signal.aborted) throw new DOMException("검색이 중단되었습니다.", "AbortError");
+              const pages = Array.from({ length: Math.min(5, limit + 1 - session.nextPage) },
+                (_, index) => session.nextPage + index);
+              status.textContent = `${pages[0]}–${pages.at(-1)} / ${limit}페이지`;
+              const batch = await fetchBatch(pages, runController.signal);
+              if (session.controller.signal.aborted) return;
+              if (runController.signal.aborted) throw new DOMException("검색이 중단되었습니다.", "AbortError");
+              for (const { page, url, html } of batch) {
+                const doc = new DOMParser().parseFromString(html, "text/html");
+                const rows = [...doc.querySelectorAll("tr.ub-content[data-no]")];
+                if (!doc.querySelector(".gall_listwrap")) throw new Error("갤러리 목록을 확인할 수 없습니다.");
+                if (!rows.length) {
+                  status.textContent = `${page - 1}페이지 확인 완료`;
+                  reachedEnd = true;
+                  session.exhausted = true;
+                  break;
+                }
+                if (page === 1) {
+                  const postNumbers = ordinaryPostNumbers(rows);
+                  if (postNumbers.length) session.newestPostNo = Math.max(...postNumbers);
+                }
+                for (const row of rows) {
+                  const post = parsePost(row, url);
+                  if (post && !session.found.has(post.no)) addPost(post);
+                }
+                session.nextPage = page + 1;
+                status.textContent = `${page} / ${limit}페이지`;
+                progress.style.width = `${((page - 1) % 200 + 1) / 2}%`;
+              }
+              persist();
+              if (reachedEnd) break;
+              if (session.nextPage <= limit) await AutomatedRequestCoordinator.wait(200, runController.signal);
+            }
+          } catch (error) {
+            if (session.controller.signal.aborted) return;
+            failed = true;
+            status.textContent = runController.signal.aborted
+              ? `${session.nextPage - 1}페이지에서 중단`
+              : error instanceof EmptyAutomatedResponseError ? "빈 응답 · 검색 중단"
+                : `검색 중단 · ${error.name === "AbortError" ? "요청 취소" : error.message}`;
+            if (!session.found.size && !titleFilter.value.trim())
+              empty.textContent = runController.signal.aborted ? "검색 결과 없음" : "검색 중단";
+          } finally {
+            session.running = false;
+            if (runningSearches.get(searchKey(identity)) === session) runningSearches.delete(searchKey(identity));
+            if (session.runController === runController) session.runController = null;
+            if (active === session) {
+              stopButton.hidden = true;
+              if (runController.signal.aborted) {
+                more.hidden = false;
+                more.textContent = "이어서 검색";
+              } else if (!failed && session.nextPage > limit) {
+                status.textContent = `${limit}페이지 확인 완료`;
+                more.hidden = false;
+                more.textContent = "더 검색하기";
+              }
+              if (!session.found.size && !titleFilter.value.trim()) empty.textContent = "검색 결과 없음";
+            }
+          }
+        };
+        more.addEventListener("click", () => { void scan(); });
+        refreshButton.addEventListener("click", () => { void refresh(); });
+        stopButton.addEventListener("click", () => {
+          if (!session.running || !session.runController) return;
+          stopButton.disabled = true;
+          session.runController.abort();
+        });
+        root.querySelector(".dcui-identifier-close").addEventListener("click", close);
+        root.addEventListener("click", (event) => { if (event.target === root) close(); });
+        document.body.appendChild(root);
+        root.querySelector(".dcui-identifier-close").focus();
+        if (!saved) void scan();
+        else if (refreshRequested) void refresh();
+      };
+      let selectedIdentity = null;
+      const decorateMenu = () => {
+        if (!selectedIdentity) return;
+        for (const menu of document.querySelectorAll(".user_data_list")) {
+          const original = [...menu.children].find((item) =>
+            item.querySelector(":scope > a")?.textContent.trim() === "작성글 검색");
+          if (!original) continue;
+          let item = menu.querySelector(":scope > .dcui-identifier-menu-item");
+          if (!item) {
+            item = document.createElement("li");
+            item.className = "bg_grey dcui-identifier-menu-item";
+            const link = document.createElement("a");
+            link.href = "javascript:;";
+            link.textContent = "식별코드 검색";
+            const icon = document.createElement("em");
+            icon.className = "sp_img icon_go";
+            link.appendChild(icon);
+            item.appendChild(link);
+            link.addEventListener("click", (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              const { searchKind: kind, searchValue: value, searchName: name } = item.dataset;
+              if (!kind || !value) return;
+              const popup = menu.closest(".user_data_lyr, .user_data");
+              if (popup) popup.style.display = "none";
+              open({ kind, value, name }, true);
+            });
+          }
+          item.dataset.searchKind = selectedIdentity.kind;
+          item.dataset.searchValue = selectedIdentity.value;
+          item.dataset.searchName = selectedIdentity.name;
+          item.querySelector(":scope > a").firstChild.textContent = selectedIdentity.kind === "ip" ? "IP 검색" : "식별코드 검색";
+          if (original.nextElementSibling !== item) original.after(item);
+        }
+      };
+      const menuObserver = new MutationObserver(decorateMenu);
+      menuObserver.observe(document.body, { childList: true, subtree: true });
+      const sidebar = document.getElementById("dcui-sidebar");
+      if (sidebar && !sidebar.querySelector(".dcui-search-history-card")) {
+        const card = document.createElement("section");
+        card.className = "dcui-side-card dcui-search-history-card";
+        card.innerHTML = `<div class="dcui-side-title"><strong>작성자 검색</strong>
+          <button type="button" class="dcui-gallery-settings-toggle dcui-search-history-toggle" aria-controls="dcui-search-history-body">보이기</button></div>
+          <div class="dcui-search-history-body" id="dcui-search-history-body">
+            <form class="dcui-author-search-form"><input type="text" aria-label="식별코드 또는 IP" placeholder="식별코드·IP" autocomplete="off" required><button type="submit">검색</button></form>
+            <ul class="dcui-history-list"></ul></div>`;
+        (sidebar.querySelector(".dcui-gallery-settings") || sidebar.querySelector(".dcui-hotkeys"))?.after(card);
+        historyButton = card.querySelector(".dcui-search-history-toggle");
+        const body = card.querySelector(".dcui-search-history-body");
+        const syncVisibility = (collapsed) => {
+          card.classList.toggle("dcui-search-history-collapsed", collapsed);
+          body.hidden = collapsed;
+          historyButton.textContent = collapsed ? "보이기" : "숨기기";
+          historyButton.setAttribute("aria-expanded", String(!collapsed));
+        };
+        syncVisibility(true);
+        historyButton.addEventListener("click", () => {
+          const collapsed = !card.classList.contains("dcui-search-history-collapsed");
+          syncVisibility(collapsed);
+        });
+        card.querySelector(".dcui-author-search-form").addEventListener("submit", (event) => {
+          event.preventDefault();
+          const value = event.currentTarget.querySelector("input").value.trim();
+          if (!value) return;
+          const isIp = /^(?:\d{1,3}\.){1,3}\d{1,3}$/.test(value)
+            || (value.includes(":") && /^[\da-f:]+$/i.test(value));
+          open({ kind: isIp ? "ip" : "uid", value, name: value }, true);
+        });
+        syncHistoryCard();
+      }
+      document.addEventListener("click", (event) => {
+        const writer = event.target.closest?.(".ub-writer[data-uid], .ub-writer[data-ip]");
+        const uid = writer?.dataset.uid?.trim();
+        const ip = writer?.dataset.ip?.trim();
+        if ((!uid && !ip) || !document.documentElement.classList.contains("dcui-enabled")) return;
+        const name = writer.dataset.nick?.trim() || writer.querySelector(".nickname")?.textContent.trim() || "";
+        selectedIdentity = uid ? { kind: "uid", value: uid, name } : { kind: "ip", value: ip, name };
+        if (event.target.closest(".dcui-user-identifier")) {
+          event.preventDefault();
+          event.stopPropagation();
+          (writer.querySelector(".nickname em") || writer.querySelector(".nickname"))?.click();
+        }
+        window.setTimeout(decorateMenu, 0);
+      }, true);
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && active) close();
+        if ((event.key === "Enter" || event.key === " ")
+          && event.target.matches?.(".dcui-user-identifier")) {
+          event.preventDefault();
+          event.target.click();
+        }
+      });
+    },
+  });
+
   function releaseEarlyShield() {
     requestAnimationFrame(() => {
       earlyShieldObserver?.disconnect();
-      document.documentElement.classList.remove("dcfmk-booting");
+      document.documentElement.classList.remove("dcui-booting");
       earlyShield?.remove();
     });
   }
@@ -9996,6 +10772,8 @@
         AutomatedRequestCoordinator.noteNavigation();
         syncConfiguredListLinks();
         ShellView.mount(pageContext);
+        SelectionSearchController.mount(pageContext);
+        IdentifierSearchController.mount(pageContext);
         void NativeAlarmInstall.apply();
         ListView.mount();
         ArticleView.mount(pageContext);
