@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         디시인사이드 UI 변경
 // @namespace    https://gall.dcinside.com
-// @version      2.0.8
+// @version      2.0.9
 // @description  갤러리 UI 변경, 즐겨찾기·최근 방문 갤러리 UI개선, 단축키, 대문 보이기/숨기기, 개념글 알림, 광고 숨김 등
 // @author       rankingbot
 // @license      MIT
 // @homepageURL  https://sleazyfork.org/ko/scripts/581303
+// @icon         https://nstatic.dcinside.com/dc/w/images/logo_icon.ico
 // @match        https://gall.dcinside.com/*/board/lists*
 // @match        https://gall.dcinside.com/board/lists*
 // @match        https://gall.dcinside.com/*/board/view*
@@ -25,7 +26,7 @@
 (function () {
   "use strict";
 
-  const SCRIPT_VERSION = "2.0.8";
+  const SCRIPT_VERSION = "2.0.9";
   const THEME_ENABLED_KEY = "dcui:enabled";
   const LIST_SIZE_PREFERENCE_KEY = "dcui:list-size-preference";
   const SETTINGS_COLLAPSED_KEY = "dcui:settings-collapsed";
@@ -440,6 +441,8 @@
       ".cm_ad.creative_ready",
       ".cm_ad[data-ad-node] > .link_ad",
       ".cm_ad[data-ad-node] > .icon_ad",
+      ".view_ad_wrap > .power_link",
+      ".cmt_list > li.power_link.cmt_power_link",
       ".kakao_ad_area",
       ".ad_bottom_list",
       ".google-auto-placed",
@@ -1463,6 +1466,8 @@
         html.dcui-enabled #gfp_sf_align > .native_image_wrap,
         html.dcui-enabled .cm_ad[data-ad-node] > .link_ad,
         html.dcui-enabled .cm_ad[data-ad-node] > .icon_ad,
+        html.dcui-enabled .view_ad_wrap > .power_link,
+        html.dcui-enabled .dcui-comments .cmt_list > li.power_link.cmt_power_link,
         html.dcui-enabled .kakao_ad_area,
         html.dcui-enabled .google-auto-placed,
         html.dcui-enabled [id^="google_ads_"],
@@ -7501,6 +7506,9 @@
         html.dcui-enabled table.dcui-list-table .gall_tit {
           padding-left: 8px;
         }
+        html.dcui-enabled table.dcui-list-table tbody tr.ub-content.block-disable {
+          display: none !important;
+        }
         html.dcui-enabled table.dcui-list-table .gall_tit > a:not(.reply_numbox) {
           color: var(--dcui-color-text-strong);
           text-decoration: none;
@@ -9301,6 +9309,12 @@
           margin: 0;
           padding: 0;
         }
+        html.dcui-enabled .dcui-comments .ub-content.block-disable {
+          display: none !important;
+        }
+        html.dcui-enabled .dcui-comments .cmt_list > li.ub-content.dory {
+          display: none !important;
+        }
         html.dcui-enabled .dcui-comments .cmt_info {
           position: relative;
         }
@@ -10145,7 +10159,7 @@
         #dcui-identifier-search { position: fixed; z-index: 2147483645; inset: 0; display: grid;
           place-items: center; padding: 16px; box-sizing: border-box; background: rgba(0,0,0,.42); }
         #dcui-identifier-search .dcui-identifier-panel { box-sizing: border-box; width: min(560px, 100%);
-          max-height: min(680px, 100%); display: flex; flex-direction: column; overflow: hidden;
+          height: min(680px, 100%); display: flex; flex-direction: column; overflow: hidden;
           border: 1px solid var(--dcui-color-border-strong); border-radius: 8px;
           background: var(--dcui-color-surface); color: var(--dcui-color-text-strong);
           box-shadow: 0 12px 36px rgba(0,0,0,.25); font: 13px/1.45 Arial, sans-serif; }
@@ -10163,16 +10177,39 @@
         #dcui-identifier-search .dcui-identifier-close:hover,
         #dcui-identifier-search .dcui-identifier-close:focus-visible { background: var(--dcui-color-surface-hover);
           color: var(--dcui-color-text-strong); }
-        #dcui-identifier-search .dcui-identifier-filter { display: block; flex: none;
-          padding: 10px 20px; border-bottom: 1px solid var(--dcui-color-border-soft); }
-        #dcui-identifier-search .dcui-identifier-filter input { box-sizing: border-box; width: 100%; height: 32px;
+        #dcui-identifier-search .dcui-identifier-filter { position: relative; z-index: 1;
+          display: flex; align-items: center; gap: 8px; flex: none; padding: 10px 20px;
+          border-bottom: 1px solid var(--dcui-color-border-soft); }
+        #dcui-identifier-search .dcui-identifier-filter input,
+        #dcui-identifier-search .dcui-identifier-sort-trigger { box-sizing: border-box; height: 32px;
           padding: 0 10px; border: 1px solid var(--dcui-color-border-strong); border-radius: 4px;
           background: var(--dcui-color-surface); color: var(--dcui-color-text-strong);
           font: 12px var(--dcui-font); }
+        #dcui-identifier-search .dcui-identifier-filter input { flex: 1; min-width: 0; }
+        #dcui-identifier-search .dcui-identifier-sort { position: relative; flex: none; width: 124px; }
+        #dcui-identifier-search .dcui-identifier-sort-trigger { width: 100%; text-align: left; cursor: pointer; }
+        #dcui-identifier-search .dcui-identifier-sort-trigger::after { content: ""; float: right;
+          margin-top: 3px; border: 4px solid transparent; border-top-color: currentColor;
+          transform: translateY(3px); }
+        #dcui-identifier-search .dcui-identifier-sort-menu { position: absolute; top: calc(100% + 4px);
+          right: 0; width: 100%; box-sizing: border-box; padding: 4px 0;
+          border: 1px solid var(--dcui-color-border-strong); border-radius: 4px;
+          background: var(--dcui-color-surface); box-shadow: 0 6px 16px rgba(0,0,0,.18); }
+        #dcui-identifier-search .dcui-identifier-sort-menu[hidden] { display: none !important; }
+        #dcui-identifier-search .dcui-identifier-sort-menu button { display: block; width: 100%;
+          padding: 7px 10px; border: 0; background: transparent; color: var(--dcui-color-text-strong);
+          font: 12px var(--dcui-font); text-align: left; cursor: pointer; }
+        #dcui-identifier-search .dcui-identifier-sort-menu button:hover,
+        #dcui-identifier-search .dcui-identifier-sort-menu button:focus-visible,
+        #dcui-identifier-search .dcui-identifier-sort-menu button[aria-checked="true"] {
+          background: var(--dcui-color-surface-hover); }
         #dcui-identifier-search .dcui-identifier-filter input::placeholder { color: var(--dcui-color-muted); }
-        #dcui-identifier-search .dcui-identifier-filter input:focus-visible { outline: 2px solid var(--dcui-color-accent); outline-offset: 1px; }
-        #dcui-identifier-search .dcui-identifier-results { overflow: auto; min-height: 0;
-          max-height: 520px; margin: 0; padding: 0; list-style: none; }
+        #dcui-identifier-search .dcui-identifier-filter input:focus-visible,
+        #dcui-identifier-search .dcui-identifier-sort-trigger:focus-visible {
+          outline: 2px solid var(--dcui-color-accent); outline-offset: 1px; }
+        #dcui-identifier-search .dcui-identifier-results { flex: 1 1 auto; overflow: auto; min-height: 0;
+          margin: 0; padding: 0; list-style: none; }
+        #dcui-identifier-search .dcui-identifier-results:not(:has(li:not([hidden]))) { display: none; }
         #dcui-identifier-search .dcui-identifier-results li { display: flex; flex-direction: column;
           gap: 3px; min-height: 48px; padding: 7px 20px; box-sizing: border-box;
           border-bottom: 1px solid var(--dcui-color-border-soft); }
@@ -10192,8 +10229,8 @@
           text-overflow: ellipsis; white-space: nowrap; color: var(--dcui-color-muted); font-size: 11px; }
         #dcui-identifier-search .dcui-identifier-stats { margin-left: auto; flex: none;
           color: var(--dcui-color-muted); font-size: 11px; }
-        #dcui-identifier-search .dcui-identifier-empty { display: grid; place-items: center;
-          min-height: 124px; padding: 16px; color: var(--dcui-color-muted); }
+        #dcui-identifier-search .dcui-identifier-empty { display: grid; flex: 1 1 auto; place-items: center;
+          min-height: 0; padding: 16px; color: var(--dcui-color-muted); }
         #dcui-identifier-search .dcui-identifier-empty[hidden] { display: none !important; }
         #dcui-identifier-search .dcui-identifier-foot { display: flex; align-items: center;
           justify-content: space-between; gap: 12px; min-height: 40px; padding: 0 20px;
@@ -10302,7 +10339,16 @@
         root.id = "dcui-identifier-search";
         root.innerHTML = `<section class="dcui-identifier-panel" role="dialog" aria-modal="true" aria-labelledby="dcui-identifier-title">
           <div class="dcui-identifier-head"><div class="dcui-identifier-heading"><h2 id="dcui-identifier-title">식별코드 검색</h2><span class="dcui-identifier-target"></span></div><button type="button" class="dcui-identifier-close" aria-label="닫기">×</button></div>
-          <label class="dcui-identifier-filter"><input type="search" aria-label="찾은 글 제목 검색" placeholder="찾은 글 제목 검색" autocomplete="off"></label>
+          <div class="dcui-identifier-filter"><input type="search" aria-label="찾은 글 제목 검색" placeholder="찾은 글 제목 검색" autocomplete="off">
+            <div class="dcui-identifier-sort"><button type="button" class="dcui-identifier-sort-trigger"
+              aria-label="검색 결과 정렬: 최신순" aria-haspopup="menu" aria-expanded="false" aria-controls="dcui-identifier-sort-menu">최신순</button>
+              <div id="dcui-identifier-sort-menu" class="dcui-identifier-sort-menu" role="menu" aria-label="검색 결과 정렬" hidden>
+                <button type="button" role="menuitemradio" aria-checked="true" data-sort="newest">최신순</button>
+                <button type="button" role="menuitemradio" aria-checked="false" data-sort="oldest">오래된순</button>
+                <button type="button" role="menuitemradio" aria-checked="false" data-sort="views">조회순</button>
+                <button type="button" role="menuitemradio" aria-checked="false" data-sort="recommendations">추천순</button>
+                <button type="button" role="menuitemradio" aria-checked="false" data-sort="replies">댓글순</button>
+              </div></div></div>
           <ol class="dcui-identifier-results"></ol><div class="dcui-identifier-empty">검색 중…</div>
           <div class="dcui-identifier-foot"><span class="dcui-identifier-status" role="status">0 / 200페이지</span>
             <strong class="dcui-identifier-count">0건</strong></div>
@@ -10316,6 +10362,11 @@
         const status = root.querySelector(".dcui-identifier-status");
         const results = root.querySelector(".dcui-identifier-results");
         const titleFilter = root.querySelector(".dcui-identifier-filter input");
+        const sortControl = root.querySelector(".dcui-identifier-sort");
+        const sortTrigger = sortControl.querySelector(".dcui-identifier-sort-trigger");
+        const sortMenu = sortControl.querySelector(".dcui-identifier-sort-menu");
+        const sortOptions = [...sortMenu.querySelectorAll("[data-sort]")];
+        let sortMode = "newest";
         const empty = root.querySelector(".dcui-identifier-empty");
         const count = root.querySelector(".dcui-identifier-count");
         const progress = root.querySelector(".dcui-identifier-progress > span");
@@ -10327,6 +10378,87 @@
           newestPostNo: Number(saved?.newestPostNo) || 0,
           refreshState: saved?.refreshState?.page >= 1 ? saved.refreshState : null };
         active = session;
+        const dateValue = (post) => {
+          const match = String(post.date || "").match(/(\d{4})[.-](\d{1,2})[.-](\d{1,2})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+          return match ? Number(match.slice(1, 7).map((part, index) =>
+            String(part || 0).padStart(index === 0 ? 4 : 2, "0")).join("")) : 0;
+        };
+        const countValue = (value) => {
+          const match = String(value || "").trim().replace(/,/g, "").match(/^([\d.]+)\s*(억|만|천)?$/);
+          return match ? (Number(match[1]) || 0) * ({ 억: 1e8, 만: 1e4, 천: 1e3 }[match[2]] || 1) : 0;
+        };
+        const sortPosts = () => {
+          session.posts.sort((a, b) => Number(b.no) - Number(a.no));
+          const byNo = new Map(session.posts.map((post) => [post.no, post]));
+          const mode = sortMode;
+          const sorted = [...results.children].sort((left, right) => {
+            const a = byNo.get(left.dataset.no);
+            const b = byNo.get(right.dataset.no);
+            if (mode === "newest" || mode === "oldest") {
+              const aDate = dateValue(a);
+              const bDate = dateValue(b);
+              if (aDate && bDate && aDate !== bDate) {
+                return mode === "oldest" ? aDate - bDate : bDate - aDate;
+              }
+              return mode === "oldest" ? Number(a.no) - Number(b.no) : Number(b.no) - Number(a.no);
+            }
+            const metric = mode === "views" ? "views" : mode === "replies" ? "replies" : "recommendations";
+            const value = (post) => metric === "replies"
+              ? countValue(post.replies) + countValue(post.voiceReplies) : countValue(post[metric]);
+            return value(b) - value(a) || Number(b.no) - Number(a.no);
+          });
+          const fragment = document.createDocumentFragment();
+          for (const item of sorted) fragment.appendChild(item);
+          results.replaceChildren(fragment);
+        };
+        const closeSortMenu = () => {
+          sortMenu.hidden = true;
+          sortTrigger.setAttribute("aria-expanded", "false");
+        };
+        const openSortMenu = () => {
+          sortMenu.hidden = false;
+          sortTrigger.setAttribute("aria-expanded", "true");
+        };
+        sortTrigger.addEventListener("click", () => {
+          if (sortMenu.hidden) openSortMenu();
+          else closeSortMenu();
+        });
+        sortMenu.addEventListener("click", (event) => {
+          const option = event.target.closest("[data-sort]");
+          if (!option || !sortMenu.contains(option)) return;
+          sortMode = option.dataset.sort;
+          sortTrigger.textContent = option.textContent;
+          sortTrigger.setAttribute("aria-label", `검색 결과 정렬: ${option.textContent}`);
+          for (const item of sortOptions) item.setAttribute("aria-checked", String(item === option));
+          sortPosts();
+          closeSortMenu();
+          sortTrigger.focus();
+        });
+        sortTrigger.addEventListener("keydown", (event) => {
+          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+          event.preventDefault();
+          openSortMenu();
+          sortOptions.find((item) => item.dataset.sort === sortMode).focus();
+        });
+        sortMenu.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            closeSortMenu();
+            sortTrigger.focus();
+          } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+            event.preventDefault();
+            const index = sortOptions.indexOf(document.activeElement);
+            const next = event.key === "Home" ? 0 : event.key === "End" ? sortOptions.length - 1
+              : (index + (event.key === "ArrowDown" ? 1 : -1) + sortOptions.length) % sortOptions.length;
+            sortOptions[next].focus();
+          }
+        });
+        sortControl.addEventListener("focusout", (event) => {
+          if (!sortControl.contains(event.relatedTarget)) closeSortMenu();
+        });
+        root.addEventListener("pointerdown", (event) => {
+          if (!sortControl.contains(event.target)) closeSortMenu();
+        });
         const applyTitleFilter = () => {
           const query = titleFilter.value.trim().toLocaleLowerCase();
           let shown = 0;
@@ -10361,7 +10493,8 @@
           const normalized = { no: post.no, href: href.href, title: post.title || `게시글 ${post.no}`,
             date: post.date || "", name: post.name || "", icons,
             views: post.views || "0", recommendations: post.recommendations || "0",
-            replies: Number(post.replies) || 0, concept: post.concept === true };
+            replies: Number(post.replies) || 0, voiceReplies: Number(post.voiceReplies) || 0,
+            concept: post.concept === true };
           const existingIndex = session.posts.findIndex((entry) => entry.no === post.no);
           if (existingIndex < 0) {
             session.found.add(post.no);
@@ -10385,11 +10518,12 @@
           }
           link.appendChild(document.createTextNode(post.title || `게시글 ${post.no}`));
           main.appendChild(link);
-          if (post.replies > 0) {
+          if (normalized.replies > 0 || normalized.voiceReplies > 0) {
             const replies = document.createElement("span");
             replies.className = "dcui-identifier-replies";
-            replies.textContent = `[${post.replies}]`;
-            replies.setAttribute("aria-label", `댓글 ${post.replies}개`);
+            replies.textContent = `[${normalized.replies}${normalized.voiceReplies ? `/${normalized.voiceReplies}` : ""}]`;
+            replies.setAttribute("aria-label",
+              `댓글 ${normalized.replies}개${normalized.voiceReplies ? `, 보이스리플 ${normalized.voiceReplies}개` : ""}`);
             main.appendChild(replies);
           }
           const meta = document.createElement("div");
@@ -10411,6 +10545,7 @@
           applyTitleFilter();
         };
         for (const post of saved?.posts || []) addPost(post);
+        sortPosts();
         if (saved) {
           refreshButton.hidden = false;
           const lastPage = session.nextPage - 1;
@@ -10465,7 +10600,9 @@
           if (!no || !titleLink) return null;
           const postUrl = new URL(titleLink.getAttribute("href"), url);
           if (postUrl.origin !== listUrl.origin || postUrl.searchParams.get("id") !== galleryId) return null;
-          const replies = Number(row.querySelector(".gall_tit .reply_num")?.textContent.replace(/[^\d]/g, "")) || 0;
+          const replyParts = row.querySelector(".gall_tit .reply_num")?.textContent.match(/\[?(\d+)(?:\/(\d+))?/);
+          const replies = Number(replyParts?.[1]) || 0;
+          const voiceReplies = Number(replyParts?.[2]) || 0;
           const concept = row.dataset.type?.startsWith("icon_recom")
             || Boolean(row.querySelector(".gall_tit .icon_img[class*='icon_recom']"));
           const icons = [...titleLink.querySelectorAll(".icon_img")]
@@ -10473,7 +10610,8 @@
           if (!icons.length && /^icon_[a-z0-9_]+$/.test(row.dataset.type || "")) icons.push(row.dataset.type);
           return { no, href: postUrl.href, title: titleLink.textContent.trim(),
             name: writer?.dataset.nick?.trim() || "",
-            date: row.querySelector(".gall_date")?.getAttribute("title") || "", replies, concept, icons,
+            date: row.querySelector(".gall_date")?.getAttribute("title") || "", replies, voiceReplies,
+            concept, icons,
             views: row.querySelector(".gall_count")?.textContent.trim() || "0",
             recommendations: row.querySelector(".gall_recommend")?.textContent.trim() || "0" };
         };
@@ -10481,10 +10619,6 @@
           try { saveSearch(identity, session); } catch (error) {
             console.warn("[DC UI] 작성자 검색 기록 저장 실패:", error);
           }
-        };
-        const sortPosts = () => {
-          session.posts.sort((a, b) => Number(b.no) - Number(a.no));
-          results.replaceChildren(...[...results.children].sort((a, b) => Number(b.dataset.no) - Number(a.dataset.no)));
         };
         const ordinaryPostNumbers = (rows) => rows
           .filter((row) => !row.dataset.type?.startsWith("icon_notice"))
@@ -10614,6 +10748,7 @@
                 status.textContent = `${page} / ${limit}페이지`;
                 progress.style.width = `${((page - 1) % 200 + 1) / 2}%`;
               }
+              sortPosts();
               persist();
               if (reachedEnd) break;
               if (session.nextPage <= limit) await AutomatedRequestCoordinator.wait(200, runController.signal);
