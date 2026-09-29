@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         디시인사이드 UI 변경
 // @namespace    https://gall.dcinside.com
-// @version      2.0.9
+// @version      2.1.0
 // @description  갤러리 UI 변경, 즐겨찾기·최근 방문 갤러리 UI개선, 단축키, 대문 보이기/숨기기, 개념글 알림, 광고 숨김 등
 // @author       rankingbot
 // @license      MIT
@@ -26,7 +26,7 @@
 (function () {
   "use strict";
 
-  const SCRIPT_VERSION = "2.0.9";
+  const SCRIPT_VERSION = "2.1.0";
   const THEME_ENABLED_KEY = "dcui:enabled";
   const LIST_SIZE_PREFERENCE_KEY = "dcui:list-size-preference";
   const SETTINGS_COLLAPSED_KEY = "dcui:settings-collapsed";
@@ -2873,9 +2873,13 @@
 
     desktopPostUrl(context, postId) {
       const url = new URL(context.urls.list);
+      const listNum = url.searchParams.get("list_num");
       url.pathname = url.pathname.replace(/\/lists\/?$/, "/view/");
+      url.search = "";
+      url.searchParams.set("id", context.galleryId);
       url.searchParams.set("no", postId);
       url.searchParams.set("exception_mode", "recommend");
+      if (listNum) url.searchParams.set("list_num", listNum);
       url.searchParams.set("page", "1");
       return url.href;
     },
