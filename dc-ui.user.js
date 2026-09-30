@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         디시인사이드 UI 변경
 // @namespace    https://gall.dcinside.com
-// @version      2.1.0
+// @version      2.1.1
 // @description  갤러리 UI 변경, 즐겨찾기·최근 방문 갤러리 UI개선, 단축키, 대문 보이기/숨기기, 개념글 알림, 광고 숨김 등
 // @author       rankingbot
 // @license      MIT
@@ -26,7 +26,7 @@
 (function () {
   "use strict";
 
-  const SCRIPT_VERSION = "2.1.0";
+  const SCRIPT_VERSION = "2.1.1";
   const THEME_ENABLED_KEY = "dcui:enabled";
   const LIST_SIZE_PREFERENCE_KEY = "dcui:list-size-preference";
   const SETTINGS_COLLAPSED_KEY = "dcui:settings-collapsed";
@@ -7510,7 +7510,7 @@
         html.dcui-enabled table.dcui-list-table .gall_tit {
           padding-left: 8px;
         }
-        html.dcui-enabled table.dcui-list-table tbody tr.ub-content.block-disable {
+        html.dcui-enabled table.gall_list tbody tr.ub-content.block-disable {
           display: none !important;
         }
         html.dcui-enabled table.dcui-list-table .gall_tit > a:not(.reply_numbox) {
