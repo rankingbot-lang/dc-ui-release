@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         디시인사이드 UI 변경
 // @namespace    https://gall.dcinside.com
-// @version      2.1.1
+// @version      2.1.2
 // @description  갤러리 UI 변경, 즐겨찾기·최근 방문 갤러리 UI개선, 단축키, 대문 보이기/숨기기, 개념글 알림, 광고 숨김 등
 // @author       rankingbot
 // @license      MIT
@@ -26,7 +26,7 @@
 (function () {
   "use strict";
 
-  const SCRIPT_VERSION = "2.1.1";
+  const SCRIPT_VERSION = "2.1.2";
   const THEME_ENABLED_KEY = "dcui:enabled";
   const LIST_SIZE_PREFERENCE_KEY = "dcui:list-size-preference";
   const SETTINGS_COLLAPSED_KEY = "dcui:settings-collapsed";
@@ -7147,11 +7147,15 @@
       return subjectTargetPromise;
     },
 
+    subjectCellLabel(cell) {
+      return cleanText(cell.querySelector(".subject_inner")?.textContent || cell.textContent);
+    },
+
     linkSubjectCells(targets) {
       for (const cell of document.querySelectorAll("table.dcui-list-table tbody tr.ub-content .dcui-tab-cell")) {
         const existing = cell.querySelector(":scope > .dcui-subject-filter-link");
         if (existing?.shadowRoot) continue;
-        const label = cleanText(cell.textContent);
+        const label = this.subjectCellLabel(cell);
         const targetHref = targets.get(label);
         if (!targetHref) continue;
 
@@ -7172,6 +7176,27 @@
         link.href = targetHref;
         link.setAttribute("aria-label", `${label} 말머리 글만 보기`);
         link.appendChild(document.createElement("slot"));
+        const originalTooltip = cell.querySelector(".subject_inner");
+        if (originalTooltip) {
+          // DC sends a shortened label plus the complete name in its hover layer.
+          // Preserve both native nodes and hover handlers; only change presentation.
+          const fullLabel = document.createElement("span");
+          fullLabel.className = "full-label";
+          fullLabel.textContent = label;
+          link.appendChild(fullLabel);
+          style.textContent += `
+            .full-label { display: none; }
+            :host-context(html.dcui-enabled) slot { display: none; }
+            :host-context(html.dcui-enabled) .full-label { display: inline; }
+          `;
+          cell.addEventListener("mouseover", () => {
+            // Measure at hover time so font loading and layout changes are reflected.
+            // Leave native showLayer handlers intact, including in the original UI.
+            const fits = link.clientWidth > 0
+              && fullLabel.getBoundingClientRect().width <= link.clientWidth;
+            cell.classList.toggle("dcui-subject-fits", fits);
+          }, { capture: true });
+        }
         for (const type of ["click", "auxclick", "contextmenu"]) {
           link.addEventListener(type, (event) => {
             link.href = galleryBoardHref(link.href);
@@ -7181,8 +7206,10 @@
         }
         shadow.append(style, link);
         if (!existing) {
-          while (cell.firstChild) host.appendChild(cell.firstChild);
-          cell.appendChild(host);
+          for (const child of [...cell.childNodes]) {
+            if (child !== originalTooltip) host.appendChild(child);
+          }
+          cell.prepend(host);
         }
       }
     },
@@ -7196,7 +7223,7 @@
       const hasFreshTargets = cached.fresh || localTargetsAreComplete;
       const hasUnlinkedSupportedCell = Array.from(document.querySelectorAll(
         "table.dcui-list-table tbody tr.ub-content .dcui-tab-cell:not(:has(> .dcui-subject-filter-link))",
-      )).some((cell) => !["", "설문", "AD"].includes(cleanText(cell.textContent)));
+      )).some((cell) => !["", "설문", "AD"].includes(this.subjectCellLabel(cell)));
       const needsRemoteTargets = !hasFreshTargets && hasUnlinkedSupportedCell;
       const needsFreshViewTargets = pageContext.pageType === "view" && !hasFreshTargets;
       if (!needsRemoteTargets && !needsFreshViewTargets) return;
@@ -8474,9 +8501,13 @@
           display: block;
           overflow: hidden;
           width: 100%;
+          max-width: 52px;
           color: inherit;
           text-overflow: ellipsis;
           white-space: nowrap;
+        }
+        html.dcui-enabled table.dcui-list-table .dcui-subject-fits > .subject_inner {
+          display: none !important;
         }
         html.dcui-enabled table.dcui-list-table .dcui-subject-filter-link:hover,
         html.dcui-enabled table.dcui-list-table .dcui-subject-filter-link:focus-visible {
